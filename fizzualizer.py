@@ -175,12 +175,18 @@ class StreamCapture:
 # MPRIS play/pause toggle — targets the most recently active player
 # =========================================================================
 
+_last_mpris_target = None  # remember which player we last toggled
+
+
 def _toggle_mpris():
     """Toggle play/pause on the most recently active MPRIS player.
 
-    Priority: Playing > Paused > Stopped. Among players with the same
-    status, the one listed first by playerctl wins.
+    Priority: last-toggled player > currently Playing > Paused > Stopped.
+    This prevents toggling a wrong paused player when the one you were
+    just interacting with is also paused.
     """
+    global _last_mpris_target
+
     try:
         players = subprocess.check_output(
             ['playerctl', '-l'], text=True, timeout=2,
@@ -190,7 +196,6 @@ def _toggle_mpris():
     if not players:
         return
 
-    # Priority buckets
     playing, paused, stopped = [], [], []
     for p in players:
         try:
@@ -207,10 +212,19 @@ def _toggle_mpris():
         else:
             stopped.append(p)
 
-    target = playing[0] if playing else (paused[0] if paused else (stopped[0] if stopped else None))
-    if target is None:
+    # Pick target: last-used > currently Playing > Paused > Stopped
+    if _last_mpris_target in players:
+        target = _last_mpris_target
+    elif playing:
+        target = playing[0]
+    elif paused:
+        target = paused[0]
+    elif stopped:
+        target = stopped[0]
+    else:
         return
 
+    _last_mpris_target = target
     subprocess.Popen(
         ['playerctl', '--player', target, 'play-pause'],
         stdout=subprocess.DEVNULL,
