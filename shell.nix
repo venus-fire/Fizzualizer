@@ -7,6 +7,7 @@ pkgs.mkShell {
     python3Packages.numpy
     python3Packages.pygame
     python3Packages.moderngl
+    playerctl
   ];
   shellHook = ''
     echo "Fizzualizer ready — run: python fizzualizer.py"

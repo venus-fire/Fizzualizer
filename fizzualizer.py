@@ -374,6 +374,12 @@ def run():
                         running = False
                     elif event.key == pygame.K_f:
                         pygame.display.toggle_fullscreen()
+                    elif event.key == pygame.K_SPACE:
+                        subprocess.Popen(
+                            ['playerctl', 'play-pause'],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()
