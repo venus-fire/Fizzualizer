@@ -172,6 +172,53 @@ class StreamCapture:
 
 
 # =========================================================================
+# MPRIS play/pause toggle — targets the most recently active player
+# =========================================================================
+
+def _toggle_mpris():
+    """Toggle play/pause on the most recently active MPRIS player.
+
+    Priority: Playing > Paused > Stopped. Among players with the same
+    status, the one listed first by playerctl wins.
+    """
+    try:
+        players = subprocess.check_output(
+            ['playerctl', '-l'], text=True, timeout=2,
+        ).strip().split()
+    except Exception:
+        return
+    if not players:
+        return
+
+    # Priority buckets
+    playing, paused, stopped = [], [], []
+    for p in players:
+        try:
+            status = subprocess.check_output(
+                ['playerctl', '--player', p, 'status'],
+                text=True, timeout=2,
+            ).strip()
+        except Exception:
+            continue
+        if status == 'Playing':
+            playing.append(p)
+        elif status == 'Paused':
+            paused.append(p)
+        else:
+            stopped.append(p)
+
+    target = playing[0] if playing else (paused[0] if paused else (stopped[0] if stopped else None))
+    if target is None:
+        return
+
+    subprocess.Popen(
+        ['playerctl', '--player', target, 'play-pause'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+# =========================================================================
 # Ball physics
 # =========================================================================
 
@@ -375,11 +422,7 @@ def run():
                     elif event.key == pygame.K_f:
                         pygame.display.toggle_fullscreen()
                     elif event.key == pygame.K_SPACE:
-                        subprocess.Popen(
-                            ['playerctl', 'play-pause'],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
+                        _toggle_mpris()
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()
