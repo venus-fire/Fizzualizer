@@ -355,6 +355,11 @@ def run():
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("monospace", 14)
 
+    # Mouse auto-hide
+    pygame.mouse.set_visible(True)
+    last_mouse_pos = pygame.mouse.get_pos()
+    mouse_last_move = time.time()
+
     # 2D overlay for FPS text (no HUD in OpenGL, use a small pygame surface)
     fps_surf = None
     running = True
@@ -369,6 +374,9 @@ def run():
                         running = False
                     elif event.key == pygame.K_f:
                         pygame.display.toggle_fullscreen()
+                elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+                    pygame.mouse.set_visible(True)
+                    mouse_last_move = time.time()
 
             bands = audio.get_bands()
 
@@ -422,6 +430,10 @@ def run():
             # Blit overlay AFTER flip for cleaner timing
             if fps_surf:
                 screen.blit(fps_surf, (8, 8))
+
+            # Auto-hide cursor after delay
+            if time.time() - mouse_last_move > cfg.MOUSE_HIDE_DELAY:
+                pygame.mouse.set_visible(False)
 
     finally:
         audio.close()
