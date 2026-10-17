@@ -11,6 +11,8 @@ WINDOW_HEIGHT = 1080
 FPS = 60
 MOUSE_HIDE_DELAY = 3  # seconds of inactivity before cursor hides
 VOLUME_STEP = 1       # percent per arrow-up / arrow-down press
+VOLUME_REPEAT_DELAY = 0.25     # seconds held before the volume starts repeating
+VOLUME_REPEAT_INTERVAL = 0.05  # seconds between steps while held (20 steps/s)
 
 # Audio settings
 FFT_SIZE = 2048

@@ -596,6 +596,10 @@ def run():
     mouse_last_pos = pygame.mouse.get_pos()
     mouse_last_move = time.time()
 
+    # Held volume keys step on their own timer
+    volume_key = None
+    volume_next = 0.0
+
     running = True
 
     try:
@@ -622,8 +626,18 @@ def run():
                         _mpris_previous()
                     elif event.key == pygame.K_UP:
                         _volume_step(cfg.VOLUME_STEP)
+                        volume_key = pygame.K_UP
+                        volume_next = time.time() + cfg.VOLUME_REPEAT_DELAY
                     elif event.key == pygame.K_DOWN:
                         _volume_step(-cfg.VOLUME_STEP)
+                        volume_key = pygame.K_DOWN
+                        volume_next = time.time() + cfg.VOLUME_REPEAT_DELAY
+                elif event.type == pygame.KEYUP:
+                    if event.key in (pygame.K_UP, pygame.K_DOWN):
+                        volume_key = None
+                elif event.type == pygame.WINDOWFOCUSLOST:
+                    # a held key never delivers its KEYUP once focus is gone
+                    volume_key = None
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()
@@ -641,8 +655,21 @@ def run():
                 balls = create_balls(w, h)
                 text_shown = None  # re-render the label for the new width
 
-            bands = audio.get_bands()
+            # Held volume keys: step at a steady rate, counted from elapsed
+            # time so the pace does not depend on the frame rate. pygame's own
+            # key repeat is off, and switching it on would repeat the track
+            # keys and the space bar too. The render loop runs at the audio
+            # block rate, well under 60fps, so a frame can carry several steps.
+            if volume_key is not None:
+                now = time.time()
+                steps = int((now - volume_next) / cfg.VOLUME_REPEAT_INTERVAL)
+                if steps > 0:
+                    steps = min(steps, 20)  # a stalled frame must not jump the volume
+                    delta = steps * cfg.VOLUME_STEP
+                    _volume_step(delta if volume_key == pygame.K_UP else -delta)
+                    volume_next += steps * cfg.VOLUME_REPEAT_INTERVAL
 
+            bands = audio.get_bands()
             # Physics
             mid = cfg.NUM_ITEMS // 2
             collide(balls, bands, mid, -1)

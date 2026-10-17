@@ -68,6 +68,10 @@ Dependencies are auto-resolved by whichever launcher you use.
 | **Left** / **Right** | Previous / next track |
 | **Up** / **Down** | System volume up / down by 1% |
 
+Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds
+once it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a
+steady pace instead of one step per tap. Both knobs are in `config.py`.
+
 Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` for a
 window; fullscreen uses the display's own resolution rather than
 `WINDOW_WIDTH`/`WINDOW_HEIGHT`. The window is resizable, and the balls stay
