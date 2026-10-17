@@ -271,6 +271,32 @@ def _now_playing():
     return ' - '.join(part.strip() for part in line.split(' - ') if part.strip())
 
 
+def _volume_step(delta):
+    """Change the default sink volume by delta percent (1 means one percent)."""
+    sign = '+' if delta > 0 else '-'
+    amount = abs(delta)
+    devnull = subprocess.DEVNULL
+    try:
+        # WirePlumber: the sign goes after the percent sign
+        subprocess.Popen(
+            ['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', f'{amount}%{sign}'],
+            stdout=devnull, stderr=devnull,
+        )
+        return
+    except FileNotFoundError:
+        pass
+    except Exception:
+        return
+    try:
+        # PulseAudio fallback: the sign goes before the number
+        subprocess.Popen(
+            ['pactl', 'set-sink-volume', '@DEFAULT_SINK@', f'{sign}{amount}%'],
+            stdout=devnull, stderr=devnull,
+        )
+    except Exception:
+        pass
+
+
 class NowPlaying:
     """Polls the selected MPRIS player off the render thread."""
 
@@ -594,6 +620,10 @@ def run():
                         _mpris_next()
                     elif event.key == pygame.K_LEFT:
                         _mpris_previous()
+                    elif event.key == pygame.K_UP:
+                        _volume_step(cfg.VOLUME_STEP)
+                    elif event.key == pygame.K_DOWN:
+                        _volume_step(-cfg.VOLUME_STEP)
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()

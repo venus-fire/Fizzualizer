@@ -66,6 +66,7 @@ Dependencies are auto-resolved by whichever launcher you use.
 | **F** or **F11** | Toggle fullscreen |
 | **Space** | Play/pause the active MPRIS player (via `playerctl`) |
 | **Left** / **Right** | Previous / next track |
+| **Up** / **Down** | System volume up / down by 1% |
 
 Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` for a
 window; fullscreen uses the display's own resolution rather than
@@ -75,8 +76,10 @@ centred when it is resized or fullscreen is toggled.
 The current track from MPRIS is drawn in the bottom right corner, refreshed
 every 1.5s. It is truncated to fit the window width.
 
-`playerctl` is what drives all of the above. Without it on `PATH` the keys do
-nothing and the corner stays empty; everything else works.
+`playerctl` is what drives the track keys and the corner line. Without it on
+`PATH` those do nothing and the corner stays empty; everything else works. The
+volume keys use `wpctl` (WirePlumber), falling back to `pactl`; the step size
+is `VOLUME_STEP` in `config.py`.
 
 ## Desktop launcher
 

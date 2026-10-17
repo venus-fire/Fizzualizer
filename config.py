@@ -10,6 +10,7 @@ WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 FPS = 60
 MOUSE_HIDE_DELAY = 3  # seconds of inactivity before cursor hides
+VOLUME_STEP = 1       # percent per arrow-up / arrow-down press
 
 # Audio settings
 FFT_SIZE = 2048
