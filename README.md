@@ -62,13 +62,21 @@ Dependencies are auto-resolved by whichever launcher you use.
 
 | Key | Action |
 |-----|--------|
-| **Esc** | Quit |
-| **F** | Toggle fullscreen |
+| **q** | Quit |
+| **F** or **F11** | Toggle fullscreen |
 | **Space** | Play/pause the active MPRIS player (via `playerctl`) |
+| **Left** / **Right** | Previous / next track |
 
 Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` for a
 window; fullscreen uses the display's own resolution rather than
-`WINDOW_WIDTH`/`WINDOW_HEIGHT`.
+`WINDOW_WIDTH`/`WINDOW_HEIGHT`. The window is resizable, and the balls stay
+centred when it is resized or fullscreen is toggled.
+
+The current track from MPRIS is drawn in the bottom right corner, refreshed
+every 1.5s. It is truncated to fit the window width.
+
+`playerctl` is what drives all of the above. Without it on `PATH` the keys do
+nothing and the corner stays empty; everything else works.
 
 ## Desktop launcher
 
@@ -83,6 +91,17 @@ the application menu and the taskbar. Re-run it after moving the repo.
 The installed entry is generated from the repo copy, so edit
 `fizzualizer.desktop` and re-run the script rather than editing the file in
 `~/.local/share/applications`.
+
+`icons/fizzualizer.png` is generated from the SVG and is what the window
+itself uses as its icon:
+
+```bash
+magick -background none -density 384 icons/fizzualizer.svg -resize 256x256 \
+  -depth 8 PNG32:icons/fizzualizer.png
+```
+
+Keep the SVG background-free. A black plate on a dark panel or in a dark
+launcher reads as an empty icon.
 
 ## Configuration
 
@@ -112,7 +131,8 @@ Key ones:
 | `shell.nix` | Nix environment, alternative to `run.sh` |
 | `fizzualizer.desktop` | Desktop entry template (`@EXEC@` / `@PATH@` filled at install) |
 | `install-desktop.sh` | Installs the desktop entry and icon for the current user |
-| `icons/fizzualizer.svg` | App icon |
+| `icons/fizzualizer.svg` | App icon source (no background plate) |
+| `icons/fizzualizer.png` | Generated from the SVG; used as the window icon |
 | `@Resources/` + `Visualizer.ini` | Original Rainmeter source files (kept for reference) |
 
 ## Original

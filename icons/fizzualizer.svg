@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <rect width="256" height="256" rx="40" fill="#000000"/>
+  <!-- No background plate: the panel and the launcher are dark, so a black
+       square here reads as an empty icon. -->
   <g>
     <circle cx="60" cy="128" r="44" fill="#1a34d8"/>
     <circle cx="128" cy="112" r="36" fill="#6a1ae0"/>

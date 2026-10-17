@@ -13,6 +13,7 @@ import os
 import subprocess
 import json
 import signal
+import threading
 import time
 import atexit
 
@@ -172,17 +173,17 @@ class StreamCapture:
 
 
 # =========================================================================
-# MPRIS play/pause toggle — targets the most recently active player
+# MPRIS control — play/pause, track skip, and the now-playing line
 # =========================================================================
 
-_last_mpris_target = None  # remember which player we last toggled
+_last_mpris_target = None  # remember which player we last commanded
 
 
-def _toggle_mpris():
-    """Toggle play/pause on the most recently active MPRIS player.
+def _pick_player(remember=True):
+    """Return the player name to command, or None if there is none.
 
-    Priority: last-toggled player > currently Playing > Paused > Stopped.
-    This prevents toggling a wrong paused player when the one you were
+    Priority: last-commanded player > currently Playing > Paused > Stopped.
+    This prevents commanding a wrong paused player when the one you were
     just interacting with is also paused.
     """
     global _last_mpris_target
@@ -192,9 +193,9 @@ def _toggle_mpris():
             ['playerctl', '-l'], text=True, timeout=2,
         ).strip().split()
     except Exception:
-        return
+        return None
     if not players:
-        return
+        return None
 
     playing, paused, stopped = [], [], []
     for p in players:
@@ -222,14 +223,79 @@ def _toggle_mpris():
     elif stopped:
         target = stopped[0]
     else:
-        return
+        return None
 
-    _last_mpris_target = target
+    if remember:
+        _last_mpris_target = target
+    return target
+
+
+def _mpris_command(action):
+    """Send one playerctl command to the selected player."""
+    target = _pick_player()
+    if target is None:
+        return
     subprocess.Popen(
-        ['playerctl', '--player', target, 'play-pause'],
+        ['playerctl', '--player', target, action],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def _toggle_mpris():
+    _mpris_command('play-pause')
+
+
+def _mpris_next():
+    _mpris_command('next')
+
+
+def _mpris_previous():
+    _mpris_command('previous')
+
+
+def _now_playing():
+    """'Artist - Title' for the selected player, or '' when there is none."""
+    target = _pick_player(remember=False)
+    if target is None:
+        return ''
+    try:
+        line = subprocess.check_output(
+            ['playerctl', '--player', target, 'metadata', '--format',
+             '{{artist}} - {{title}}'],
+            text=True, timeout=2,
+        ).strip()
+    except Exception:
+        return ''
+    # drop empty fields, so a missing artist does not leave a leading dash
+    return ' - '.join(part.strip() for part in line.split(' - ') if part.strip())
+
+
+class NowPlaying:
+    """Polls the selected MPRIS player off the render thread."""
+
+    def __init__(self, interval=1.5):
+        self._text = ''
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, args=(interval,), daemon=True)
+        self._thread.start()
+
+    def _loop(self, interval):
+        while not self._stop.wait(interval):
+            try:
+                text = _now_playing()
+            except Exception:
+                text = ''
+            with self._lock:
+                self._text = text
+
+    def text(self):
+        with self._lock:
+            return self._text
+
+    def stop(self):
+        self._stop.set()
 
 
 # =========================================================================
@@ -337,6 +403,51 @@ QUAD_INDICES = np.array([
     0, 2, 3,
 ], dtype=np.int32)
 
+# -------------------------------------------------------------------------
+# Text overlay: one textured quad in the bottom right corner. pygame renders
+# the string into a surface, that becomes a GL texture.
+# -------------------------------------------------------------------------
+
+TEXT_VERTEX_SHADER = """
+#version 330
+in vec2 in_pos;          // unit quad, 0..1
+uniform vec4 u_rect;     // x, y, w, h in pixels, top-left origin
+uniform vec2 u_resolution;
+
+out vec2 v_uv;
+
+void main() {
+    vec2 pos = u_rect.xy + in_pos * u_rect.zw;
+    vec2 clip = (pos / u_resolution) * 2.0 - 1.0;
+    gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+    // the texture was uploaded bottom-up, so flip v
+    v_uv = vec2(in_pos.x, 1.0 - in_pos.y);
+}
+"""
+
+TEXT_FRAGMENT_SHADER = """
+#version 330
+in vec2 v_uv;
+uniform sampler2D u_tex;
+out vec4 f_color;
+
+void main() {
+    vec4 texel = texture(u_tex, v_uv);
+    if (texel.a < 0.02) discard;
+    f_color = texel;
+}
+"""
+
+TEXT_QUAD_VERTS = np.array([
+    0.0, 0.0,
+    1.0, 0.0,
+    1.0, 1.0,
+    0.0, 1.0,
+], dtype=np.float32)
+
+TEXT_MARGIN = 16  # pixels from the window edge
+TEXT_COLOR = (190, 190, 190)
+
 
 def hsv_to_rgb(h, s, v):
     """HSV → RGB float 0-1."""
@@ -363,6 +474,7 @@ def hsv_to_rgb(h, s, v):
 def run():
     import pygame
     import moderngl
+    from pygame._sdl2.video import Window
 
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
@@ -372,7 +484,16 @@ def run():
     pygame.display.gl_set_attribute(pygame.GL_CONTEXT_PROFILE_MASK,
                                     pygame.GL_CONTEXT_PROFILE_CORE)
 
-    flags = pygame.OPENGL | pygame.DOUBLEBUF
+    # Window icon: this is what the titlebar and taskbar draw, separately from
+    # the .desktop file's icon.
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'icons', 'fizzualizer.png')
+    try:
+        pygame.display.set_icon(pygame.image.load(icon_path))
+    except Exception as e:
+        print(f"Icon not loaded from {icon_path}: {e}", file=sys.stderr)
+
+    flags = pygame.OPENGL | pygame.DOUBLEBUF | pygame.RESIZABLE
     if cfg.FULLSCREEN:
         flags |= pygame.FULLSCREEN
         desktop = pygame.display.Info()
@@ -388,7 +509,11 @@ def run():
     ctx = moderngl.create_context()
     ctx.enable(moderngl.BLEND)
 
-    w, h = screen.get_size()
+    # SDL's own window size is the only trustworthy one here: under XWayland
+    # pygame's surface size and moderngl's cached framebuffer size both stay
+    # at whatever the window was created with.
+    window = Window.from_display_module()
+    w, h = window.size
     print(f"Display: {w}x{h} {'fullscreen' if cfg.FULLSCREEN else 'windowed'}")
 
     # Compile shader program
@@ -412,6 +537,18 @@ def run():
         index_buffer=ibo,
     )
 
+    # Text overlay program and its quad
+    text_prog = ctx.program(vertex_shader=TEXT_VERTEX_SHADER,
+                            fragment_shader=TEXT_FRAGMENT_SHADER)
+    text_prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
+    text_vbo = ctx.buffer(TEXT_QUAD_VERTS.tobytes())
+    text_ibo = ctx.buffer(np.array([0, 1, 2, 0, 2, 3], dtype=np.int32).tobytes())
+    text_vao = ctx.vertex_array(text_prog, [(text_vbo, '2f', 'in_pos')],
+                                index_buffer=text_ibo)
+    text_tex = None
+    text_size = (0, 0)
+    text_shown = None
+
     # Audio
     audio = StreamCapture()
 
@@ -425,15 +562,14 @@ def run():
     ]
 
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("monospace", 14)
+    font = pygame.font.SysFont("monospace", 22)
+    now_playing = NowPlaying()
 
     # Mouse auto-hide
     pygame.mouse.set_visible(True)
-    last_mouse_pos = pygame.mouse.get_pos()
+    mouse_last_pos = pygame.mouse.get_pos()
     mouse_last_move = time.time()
 
-    # 2D overlay for FPS text (no HUD in OpenGL, use a small pygame surface)
-    fps_surf = None
     running = True
 
     try:
@@ -442,25 +578,38 @@ def run():
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+                    if event.key == pygame.K_q:
                         running = False
-                    elif event.key == pygame.K_f:
-                        # geometry is re-read below when the surface size changes
+                    elif event.key in (pygame.K_f, pygame.K_F11):
                         pygame.display.toggle_fullscreen()
+                        if not (screen.get_flags() & pygame.FULLSCREEN):
+                            # leaving fullscreen: back to the configured size
+                            try:
+                                window.size = (cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT)
+                            except Exception:
+                                pass
                     elif event.key == pygame.K_SPACE:
                         _toggle_mpris()
+                    elif event.key == pygame.K_RIGHT:
+                        _mpris_next()
+                    elif event.key == pygame.K_LEFT:
+                        _mpris_previous()
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()
 
-            # Track display size: fullscreen toggles and WM resizes move the
-            # centre, so the projection uniform and ball rest positions follow.
-            size = screen.get_size()
+            # Track the window size: a resize or fullscreen toggle moves the
+            # centre, so the viewport, the projection uniform and the ball rest
+            # positions all have to follow.
+            size = tuple(window.size)
             if size != (w, h):
                 w, h = size
                 print(f"Display: {w}x{h}")
+                ctx.viewport = (0, 0, w, h)
                 prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
+                text_prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
                 balls = create_balls(w, h)
+                text_shown = None  # re-render the label for the new width
 
             bands = audio.get_bands()
 
@@ -502,24 +651,43 @@ def run():
             ctx.clear(0.0, 0.0, 0.0, 1.0)
             vao.render(moderngl.TRIANGLES, vertices=cfg.NUM_ITEMS * 6)
 
-            # FPS overlay (use pygame overlay surface)
-            fps = clock.get_fps()
-            if fps_surf is None or clock.get_rawtime() > 500:
-                fps_surf = font.render(f"{fps:.0f} fps", True, (80, 80, 80))
+            # Now-playing line, bottom right. Re-rendered only when the text
+            # or the window width changes.
+            label = now_playing.text()
+            if label != text_shown:
+                text_shown = label
+                if text_tex is not None:
+                    text_tex.release()
+                    text_tex = None
+                if label:
+                    max_w = max(64, w - 2 * TEXT_MARGIN)
+                    while label and font.size(label)[0] > max_w:
+                        label = label[:-1]
+                    if label:
+                        surf = font.render(label, True, TEXT_COLOR)
+                        text_size = surf.get_size()
+                        text_tex = ctx.texture(text_size, 4,
+                                               pygame.image.tostring(surf, 'RGBA', True))
+                        text_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
 
-            # Blit FPS via SDL2 texture overlay
+            if text_tex is not None:
+                tw, th = text_size
+                text_prog['u_rect'].write(np.array(
+                    [w - tw - TEXT_MARGIN, h - th - TEXT_MARGIN, tw, th],
+                    dtype=np.float32).tobytes())
+                text_tex.use(0)
+                text_prog['u_tex'].value = 0
+                text_vao.render(moderngl.TRIANGLES, vertices=6)
+
             pygame.display.flip()
             clock.tick(cfg.FPS)
-
-            # Blit overlay AFTER flip for cleaner timing
-            if fps_surf:
-                screen.blit(fps_surf, (8, 8))
 
             # Auto-hide cursor after delay
             if time.time() - mouse_last_move > cfg.MOUSE_HIDE_DELAY:
                 pygame.mouse.set_visible(False)
 
     finally:
+        now_playing.stop()
         audio.close()
         pygame.quit()
 
