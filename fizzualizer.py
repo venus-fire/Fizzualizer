@@ -245,11 +245,14 @@ class Ball:
         self.y = oy
 
 
-def create_balls():
+def create_balls(width=None, height=None):
+    """Rest positions for every ball, centred in width x height."""
+    width = cfg.WINDOW_WIDTH if width is None else width
+    height = cfg.WINDOW_HEIGHT if height is None else height
     total_w = (cfg.NUM_ITEMS - 1) * cfg.SPACING_X
     total_h = cfg.SPACING_Y + cfg.MIN_BALL_SIZE * 2 + 20
-    offx = (cfg.WINDOW_WIDTH - total_w) // 2
-    offy = (cfg.WINDOW_HEIGHT - total_h) // 2
+    offx = (width - total_w) // 2
+    offy = (height - total_h) // 2
     return [
         Ball(offx + i * cfg.SPACING_X, offy + (0 if i % 2 == 0 else cfg.SPACING_Y))
         for i in range(cfg.NUM_ITEMS)
@@ -372,13 +375,21 @@ def run():
     flags = pygame.OPENGL | pygame.DOUBLEBUF
     if cfg.FULLSCREEN:
         flags |= pygame.FULLSCREEN
-    screen = pygame.display.set_mode((cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT), flags)
+        desktop = pygame.display.Info()
+        w, h = desktop.current_w, desktop.current_h
+        if w <= 0 or h <= 0:
+            # Wayland can report 0 before the first window exists
+            w, h = cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT
+    else:
+        w, h = cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT
+    screen = pygame.display.set_mode((w, h), flags)
     pygame.display.set_caption("Fizzualizer")
 
     ctx = moderngl.create_context()
     ctx.enable(moderngl.BLEND)
 
-    w, h = cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT
+    w, h = screen.get_size()
+    print(f"Display: {w}x{h} {'fullscreen' if cfg.FULLSCREEN else 'windowed'}")
 
     # Compile shader program
     prog = ctx.program(vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER)
@@ -405,7 +416,7 @@ def run():
     audio = StreamCapture()
 
     # Balls
-    balls = create_balls()
+    balls = create_balls(w, h)
 
     # Pre-compute per-ball hue
     hues = [
@@ -434,12 +445,22 @@ def run():
                     if event.key == pygame.K_ESCAPE:
                         running = False
                     elif event.key == pygame.K_f:
+                        # geometry is re-read below when the surface size changes
                         pygame.display.toggle_fullscreen()
                     elif event.key == pygame.K_SPACE:
                         _toggle_mpris()
                 elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                     pygame.mouse.set_visible(True)
                     mouse_last_move = time.time()
+
+            # Track display size: fullscreen toggles and WM resizes move the
+            # centre, so the projection uniform and ball rest positions follow.
+            size = screen.get_size()
+            if size != (w, h):
+                w, h = size
+                print(f"Display: {w}x{h}")
+                prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
+                balls = create_balls(w, h)
 
             bands = audio.get_bands()
 

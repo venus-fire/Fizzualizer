@@ -3,7 +3,9 @@ Fizzualizer configuration - mirrors the Rainmeter Visualizer.ini variables
 """
 
 # Display
-FULLSCREEN = False
+FULLSCREEN = True
+# Windowed size, used when FULLSCREEN is False and as a fallback if the
+# desktop size cannot be read. Fullscreen always uses the display size.
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 FPS = 60
