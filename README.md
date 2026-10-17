@@ -17,19 +17,23 @@ single line of the code directly.
 
 ## Quick Start
 
-Requires a Linux system with **PipeWire** and **Nix** (or nix-shell).
+Requires a Linux system with **PipeWire**.
 
 ```bash
 ./run.sh
 ```
 
-Or manually:
+`run.sh` creates a local `.venv` (numpy, pygame, moderngl) on first run and
+launches from it. On an immutable distro (Bazzite, Silverblue) this is the
+path that works — the Nix route below needs Nix installed.
+
+Or with Nix:
 
 ```bash
 nix-shell shell.nix --command "python fizzualizer.py"
 ```
 
-Dependencies (numpy, pygame, moderngl) are auto-resolved via the nix-shell.
+Dependencies are auto-resolved by whichever launcher you use.
 
 ## How it works
 
@@ -60,6 +64,25 @@ Dependencies (numpy, pygame, moderngl) are auto-resolved via the nix-shell.
 |-----|--------|
 | **Esc** | Quit |
 | **F** | Toggle fullscreen |
+| **Space** | Play/pause the active MPRIS player (via `playerctl`) |
+
+Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` for a
+window; fullscreen uses the display's own resolution rather than
+`WINDOW_WIDTH`/`WINDOW_HEIGHT`.
+
+## Desktop launcher
+
+```bash
+./install-desktop.sh
+```
+
+Installs `fizzualizer.desktop` into `~/.local/share/applications` and the icon
+into the user icon theme, filling in this checkout's path. It then shows up in
+the application menu and the taskbar. Re-run it after moving the repo.
+
+The installed entry is generated from the repo copy, so edit
+`fizzualizer.desktop` and re-run the script rather than editing the file in
+`~/.local/share/applications`.
 
 ## Configuration
 
@@ -83,10 +106,13 @@ Key ones:
 
 | File | What |
 |------|------|
-| `fizzualizer.py` | Main app (~400 lines) |
+| `fizzualizer.py` | Main app (~520 lines) |
 | `config.py` | All visualizer settings |
-| `shell.nix` | Nix environment (numpy, pygame, moderngl) |
-| `run.sh` | Convenience launcher |
+| `run.sh` | Launcher (creates and uses `.venv`) |
+| `shell.nix` | Nix environment, alternative to `run.sh` |
+| `fizzualizer.desktop` | Desktop entry template (`@EXEC@` / `@PATH@` filled at install) |
+| `install-desktop.sh` | Installs the desktop entry and icon for the current user |
+| `icons/fizzualizer.svg` | App icon |
 | `@Resources/` + `Visualizer.ini` | Original Rainmeter source files (kept for reference) |
 
 ## Original

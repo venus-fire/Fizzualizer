@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Fizzualizer
+GenericName=Audio Visualizer
+Comment=Real-time PipeWire audio visualizer with 45 frequency-analyzed circles
+Exec=@EXEC@
+Path=@PATH@
+Icon=fizzualizer
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=visualizer;audio;music;spectrum;fft;pipewire;
+StartupWMClass=fizzualizer.py
+StartupNotify=true
