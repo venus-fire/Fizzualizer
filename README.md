@@ -85,6 +85,25 @@ every 1.5s. It is truncated to fit the window width.
 volume keys use `wpctl` (WirePlumber), falling back to `pactl`; the step size
 is `VOLUME_STEP` in `config.py`.
 
+## Stereo
+
+Capture is stereo, and each band's left/right balance moves its ball: a band
+louder in the left ear pulls its ball up, one louder in the right ear pushes it
+down. The travel scales with how loud the band is, so a quiet band barely
+moves, and it is applied to the ball's rest height so the existing spring
+carries it there rather than teleporting it. `STEREO_SHIFT` in `config.py` is
+the maximum travel in pixels at full pan and full volume.
+
+## Analysis rate
+
+The audio thread analyses a 2048 sample window every 1024 samples, so the loop
+runs at the hop rate: about 43 frames a second at 44.1kHz, independent of the
+audio device. `ATTACK` and `DECAY` are per-frame factors, so changing
+`FFT_SIZE` changes the frame rate and the feel along with it. `PEAK_DECAY` is
+how fast each band forgets its loudest recent moment: at 0.995 a quiet passage
+recovers from a preceding loud one in a second or two instead of staying
+squashed for ten.
+
 ## Desktop launcher
 
 ```bash
@@ -124,7 +143,10 @@ Key ones:
 | `NO_PARTICLES` | True | Set `False` for bouncing particle effects |
 | `HUE_START` | 240 | Colour gradient start (blue) |
 | `HUE_END` | 350 | Colour gradient end (purple) |
+| `MIN_BALL_SIZE` | 6 | Radius floor, so a silent band is still a visible dot |
 | `MAX_BALL_SIZE` | 200 | Maximum ball diameter in pixels |
+| `STEREO_SHIFT` | 120 | Most a ball travels up or down for the stereo pan |
+| `PEAK_DECAY` | 0.995 | How fast a band forgets its loudest recent moment |
 | `SPACING_X` | 12 | Horizontal spacing between balls |
 | `SPACING_Y` | 12 | Vertical offset for staggered rows |
 

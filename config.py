@@ -18,23 +18,33 @@ VOLUME_REPEAT_INTERVAL = 0.05  # seconds between steps while held (20 steps/s)
 FFT_SIZE = 2048
 FFT_OVERLAP = 1024
 SAMPLE_RATE = 44100
-CHANNELS = 1
+CHANNELS = 2           # stereo capture; the pan of each band moves its ball
 SENSITIVITY = 55.0
 # Attack/Decay smoothing (0.0-1.0, higher = faster response)
-ATTACK = 0.75   # Rainmeter default 75
-DECAY = 0.9     # Rainmeter default 100 (reversed: higher = slower decay)
+# These are per-frame factors and the loop runs at the hop rate, currently
+# 1024 frames = about 43fps at 44.1kHz. A frame-rate change changes the feel.
+ATTACK = 0.9    # Rainmeter default 75; higher = the hit lands harder
+DECAY = 0.97    # Rainmeter default 100 (reversed: higher = slower decay)
 FREQ_MIN = 10
 FREQ_MAX = 15000
+# Per-band peak tracking for the adaptive normalisation: how fast a band
+# forgets its loudest recent moment. 0.995 is about a 3 second half-life at the
+# current frame rate. Lower = a quiet passage recovers sooner after a loud one,
+# higher = the loud peak keeps squashing everything for longer.
+PEAK_DECAY = 0.995
 
 # Ball settings
 NUM_ITEMS = 45
-MIN_BALL_SIZE = 0
+MIN_BALL_SIZE = 6     # radius floor, so a quiet band is still a visible dot
 MAX_BALL_SIZE = 200
 MAX_COLLIDER_SIZE = 160
 SPACING_X = 12
 SPACING_Y = 12
 OFFSET_X = 800
 OFFSET_Y = 350
+# Stereo: a band leaning left pulls its ball up, right pushes it down. This is
+# the most it travels, in pixels, at full pan and full volume.
+STEREO_SHIFT = 120
 
 # Particle settings
 NO_PARTICLES = True   # set False to enable bouncing particles
@@ -44,10 +54,14 @@ PARTICLE_COLOR = (255, 255, 255)
 # Color settings (HSV)
 HUE_START = 240       # blue
 HUE_END = 350         # purple
-SAT_ZERO = 0.0        # Saturation when band = 0
+# Colour when a band is silent. The Rainmeter skin interpolates from SatMin /
+# ValMin at zero, so the same values here keep a quiet ball a solid, saturated
+# dot. Zeroing saturation and dropping the value turns those balls grey, which
+# reads as washed out next to the live ones.
+SAT_ZERO = 0.75
 SAT_MIN = 0.75
 SAT_MAX = 0.85
-VAL_ZERO = 0.33       # Value when band = 0
+VAL_ZERO = 0.75
 VAL_MIN = 0.75
 VAL_MAX = 1.0
 

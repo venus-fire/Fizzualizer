@@ -57,7 +57,12 @@ class StreamCapture:
 
     def __init__(self):
         self._proc = None
-        self._block_bytes = cfg.FFT_SIZE * 4
+        # Stereo, and a half-window hop so analyses overlap: a brief transient
+        # lands inside two windows instead of possibly falling between them.
+        self._channels = 2
+        self._hop = cfg.FFT_SIZE // 2
+        self._hop_bytes = self._hop * self._channels * 4
+        self._ring = np.zeros((cfg.FFT_SIZE, self._channels), dtype=np.float32)
         self._start_pwcat()
 
         # Pre-compute band binning indices
@@ -67,9 +72,12 @@ class StreamCapture:
         edges = np.logspace(log_min, log_max, cfg.NUM_ITEMS + 1)
         self._band_idx = np.digitize(self._freqs, edges) - 1
         self._band_idx = np.clip(self._band_idx, 0, cfg.NUM_ITEMS - 1)
+        self._counts = np.bincount(self._band_idx,
+                                   minlength=cfg.NUM_ITEMS).astype(np.float32)
 
         self._window = np.hanning(cfg.FFT_SIZE)
         self._smoothed = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
+        self._pan = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
         self._per_band_peak = np.ones(cfg.NUM_ITEMS, dtype=np.float32) * 1e-6
 
     def _start_pwcat(self):
@@ -78,20 +86,20 @@ class StreamCapture:
             print("ERROR: no audio sink found. Is PipeWire running?", file=sys.stderr)
             sys.exit(1)
         self._sink_name = sink_name
-        print(f"Audio: {sink_name} (sink monitor)")
+        print(f"Audio: {sink_name} (sink monitor, {self._channels}ch)")
         try:
             self._proc = subprocess.Popen(
                 ['pw-cat', '--record',
                  '--format', 'f32',
                  '--rate', str(cfg.SAMPLE_RATE),
-                 '--channels', '1',
+                 '--channels', str(self._channels),
                  '--target', sink_name,
                  '--properties', '{"stream.capture.sink":true}',
-                 '--latency', f'{cfg.FFT_SIZE * 1000 // cfg.SAMPLE_RATE}ms',
+                 '--latency', f'{self._hop * 1000 // cfg.SAMPLE_RATE}ms',
                  '-'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                bufsize=self._block_bytes * 4,
+                bufsize=self._hop_bytes * 4,
             )
         except FileNotFoundError:
             print("ERROR: pw-cat not found. Install pipewire.jack.", file=sys.stderr)
@@ -132,32 +140,60 @@ class StreamCapture:
         self.close()
 
     def read_block(self):
+        """Read one hop of interleaved stereo, or None on a short read."""
         if self._proc is None or self._proc.stdout is None:
             return None
         try:
-            raw = self._proc.stdout.read(self._block_bytes)
+            raw = self._proc.stdout.read(self._hop_bytes)
         except Exception:
             return None
-        if len(raw) < self._block_bytes:
+        if len(raw) < self._hop_bytes:
             return None
-        return np.frombuffer(raw, dtype=np.float32).copy()
+        return np.frombuffer(raw, dtype=np.float32).reshape(-1, self._channels).copy()
 
     def get_bands(self):
-        """Return smoothed per-band amplitudes [0,1]."""
-        data = self.read_block()
-        if data is None or len(data) < cfg.FFT_SIZE:
-            return self._smoothed.copy()
+        """Return (per-band amplitudes [0,1], per-band pan [-1 left .. +1 right]).
 
-        spectrum = np.fft.rfft(data * self._window)
-        mag = np.abs(spectrum)
+        The hop is half a window, so consecutive analyses overlap and a short
+        transient cannot slip between them.
+        """
+        chunk = self.read_block()
+        if chunk is not None:
+            n = chunk.shape[0]
+            if n >= cfg.FFT_SIZE:
+                self._ring = chunk[-cfg.FFT_SIZE:].copy()
+            else:
+                self._ring = np.concatenate((self._ring[n:], chunk), axis=0)
 
-        counts = np.bincount(self._band_idx, minlength=cfg.NUM_ITEMS).astype(np.float32)
-        sums = np.bincount(self._band_idx, weights=mag, minlength=cfg.NUM_ITEMS)
-        raw = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+        left = self._ring[:, 0] * self._window
+        right = self._ring[:, 1] * self._window
+        mag_l = np.abs(np.fft.rfft(left))
+        mag_r = np.abs(np.fft.rfft(right))
+
+        mean_l = np.divide(
+            np.bincount(self._band_idx, weights=mag_l, minlength=cfg.NUM_ITEMS),
+            self._counts, out=np.zeros(cfg.NUM_ITEMS), where=self._counts > 0)
+        mean_r = np.divide(
+            np.bincount(self._band_idx, weights=mag_r, minlength=cfg.NUM_ITEMS),
+            self._counts, out=np.zeros(cfg.NUM_ITEMS), where=self._counts > 0)
+
+        # level: the mean of the two channels, so the scale matches a downmix
+        raw = 0.5 * (mean_l + mean_r)
         raw = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # pan: how much of this band's energy sits in the right ear
+        total = mean_l + mean_r
+        pan = np.divide(mean_r - mean_l, total,
+                        out=np.zeros(cfg.NUM_ITEMS), where=total > 1e-9)
+        pan = np.nan_to_num(pan, nan=0.0, posinf=0.0, neginf=0.0)
+        # a quiet band's pan is mostly noise, so let it follow the level too
+        self._pan += 0.35 * (pan - self._pan)
+
         # Per-band adaptive normalization (each band tracks its own peak)
-        # This prevents bass from drowning out treble
-        decay = 0.9995  # slow decay so peaks hold briefly
+        # This prevents bass from drowning out treble. The release is slow
+        # enough to ride out a note but fast enough that a quiet passage is
+        # not squashed for ten seconds by the loud one before it.
+        decay = cfg.PEAK_DECAY
         self._per_band_peak = np.maximum(raw, self._per_band_peak * decay)
         self._per_band_peak = np.maximum(self._per_band_peak, 1e-6)
         raw = raw / self._per_band_peak
@@ -169,7 +205,7 @@ class StreamCapture:
         rising = raw > self._smoothed
         self._smoothed[rising] += cfg.ATTACK * (raw[rising] - self._smoothed[rising])
         self._smoothed[~rising] += cfg.DECAY * (raw[~rising] - self._smoothed[~rising])
-        return self._smoothed.copy()
+        return self._smoothed.copy(), self._pan.copy()
 
 
 # =========================================================================
@@ -329,12 +365,13 @@ class NowPlaying:
 # =========================================================================
 
 class Ball:
-    __slots__ = ('ox', 'oy', 'x', 'y')
+    __slots__ = ('ox', 'oy', 'x', 'y', 'base_y')
     def __init__(self, ox, oy):
         self.ox = ox
         self.oy = oy
         self.x = ox
         self.y = oy
+        self.base_y = oy   # rest height; oy moves with the stereo pan
 
 
 def create_balls(width=None, height=None):
@@ -669,7 +706,14 @@ def run():
                     _volume_step(delta if volume_key == pygame.K_UP else -delta)
                     volume_next += steps * cfg.VOLUME_REPEAT_INTERVAL
 
-            bands = audio.get_bands()
+            bands, pan = audio.get_bands()
+
+            # Stereo: bands leaning left pull their ball up, right push it down.
+            # This moves the rest height, so the spring in collide() follows it
+            # elastically instead of teleporting the ball.
+            for i, ball in enumerate(balls):
+                ball.oy = ball.base_y + pan[i] * bands[i] * cfg.STEREO_SHIFT
+
             # Physics
             mid = cfg.NUM_ITEMS // 2
             collide(balls, bands, mid, -1)
