@@ -63,6 +63,9 @@ class StreamCapture:
         self._hop = cfg.FFT_SIZE // 2
         self._hop_bytes = self._hop * self._channels * 4
         self._ring = np.zeros((cfg.FFT_SIZE, self._channels), dtype=np.float32)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._reader_thread = None
         self._start_pwcat()
 
         # Pre-compute band binning indices
@@ -79,6 +82,13 @@ class StreamCapture:
         self._smoothed = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
         self._pan = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
         self._per_band_peak = np.ones(cfg.NUM_ITEMS, dtype=np.float32) * 1e-6
+        self._last_call = 0.0
+
+        # The audio is read off the render loop so the loop can present at the
+        # display rate. Reading it inline pinned the whole app to the hop rate,
+        # about 43fps, in bursts.
+        self._reader_thread = threading.Thread(target=self._reader, daemon=True)
+        self._reader_thread.start()
 
     def _start_pwcat(self):
         sink_name = _find_default_sink()
@@ -124,6 +134,7 @@ class StreamCapture:
                             pass
 
     def close(self):
+        self._stop.set()
         if self._proc:
             try:
                 StreamCapture._processes.remove(self._proc)
@@ -135,11 +146,14 @@ class StreamCapture:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
             self._proc = None
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=2)
+            self._reader_thread = None
 
     def __del__(self):
         self.close()
 
-    def read_block(self):
+    def _read_hop(self):
         """Read one hop of interleaved stereo, or None on a short read."""
         if self._proc is None or self._proc.stdout is None:
             return None
@@ -151,22 +165,40 @@ class StreamCapture:
             return None
         return np.frombuffer(raw, dtype=np.float32).reshape(-1, self._channels).copy()
 
-    def get_bands(self):
+    def _reader(self):
+        """Keep the newest window in the ring, off the render loop."""
+        while not self._stop.is_set():
+            chunk = self._read_hop()
+            if chunk is None:
+                if self._stop.is_set():
+                    break
+                time.sleep(0.005)
+                continue
+            n = chunk.shape[0]
+            with self._lock:
+                if n >= cfg.FFT_SIZE:
+                    self._ring = chunk[-cfg.FFT_SIZE:].copy()
+                else:
+                    self._ring = np.concatenate((self._ring[n:], chunk), axis=0)
+
+    def read_block(self):
+        """The newest window. Never blocks: if the reader has not advanced yet
+        this is the same window again, and the smoothing carries on from it."""
+        with self._lock:
+            return self._ring.copy()
+
+    def get_bands(self, scale=1.0):
         """Return (per-band amplitudes [0,1], per-band pan [-1 left .. +1 right]).
 
         The hop is half a window, so consecutive analyses overlap and a short
-        transient cannot slip between them.
+        transient cannot slip between them. `scale` is the frame time relative
+        to REFERENCE_FPS: the smoothing constants are per-frame values written
+        for that rate, so they are scaled to keep the feel off the frame rate.
         """
-        chunk = self.read_block()
-        if chunk is not None:
-            n = chunk.shape[0]
-            if n >= cfg.FFT_SIZE:
-                self._ring = chunk[-cfg.FFT_SIZE:].copy()
-            else:
-                self._ring = np.concatenate((self._ring[n:], chunk), axis=0)
+        window = self.read_block()
 
-        left = self._ring[:, 0] * self._window
-        right = self._ring[:, 1] * self._window
+        left = window[:, 0] * self._window
+        right = window[:, 1] * self._window
         mag_l = np.abs(np.fft.rfft(left))
         mag_r = np.abs(np.fft.rfft(right))
 
@@ -191,7 +223,7 @@ class StreamCapture:
         # This prevents bass from drowning out treble. The release is slow
         # enough to ride out a note but fast enough that a quiet passage is
         # not squashed for ten seconds by the loud one before it.
-        decay = cfg.PEAK_DECAY
+        decay = cfg.PEAK_DECAY ** scale
         self._per_band_peak = np.maximum(raw, self._per_band_peak * decay)
         self._per_band_peak = np.maximum(self._per_band_peak, 1e-6)
         raw = raw / self._per_band_peak
@@ -200,15 +232,17 @@ class StreamCapture:
         sens = 0.5 + cfg.SENSITIVITY / 100.0 * 1.5
         raw = np.clip(raw * sens, 0.0, 1.0)
 
+        attack = min(1.0, cfg.ATTACK * scale)
+        release = 1.0 - (1.0 - cfg.DECAY) ** scale
         rising = raw > self._smoothed
-        self._smoothed[rising] += cfg.ATTACK * (raw[rising] - self._smoothed[rising])
-        self._smoothed[~rising] += cfg.DECAY * (raw[~rising] - self._smoothed[~rising])
+        self._smoothed[rising] += attack * (raw[rising] - self._smoothed[rising])
+        self._smoothed[~rising] += release * (raw[~rising] - self._smoothed[~rising])
 
         # Pan, weighted by the band so a quiet band's noisy balance cannot yank
         # its ball about, then smoothed so the ball is not chasing a per-frame
         # twitch in the stereo image.
         target = pan * self._smoothed
-        self._pan += cfg.PAN_SMOOTH * (target - self._pan)
+        self._pan += min(1.0, cfg.PAN_SMOOTH * scale) * (target - self._pan)
         return self._smoothed.copy(), self._pan.copy()
 
 
@@ -392,14 +426,19 @@ def create_balls(width=None, height=None):
     ]
 
 
-def collide(balls, bands, first, step):
+def collide(balls, bands, first, step, scale=1.0):
     """Collision push + spring-back, ported from Fizzualizer.lua.
 
     The skin sets a colliding ball's position to the contact point outright,
     which pins it to whatever it touched: a big ball then sits frozen while its
     neighbours move. This pushes by a fraction of the overlap instead, so a
     ball keeps sliding out of the way and stays live.
+
+    `scale` is the frame time relative to REFERENCE_FPS, so the push and the
+    spring keep their wall-clock feel when the frame rate changes.
     """
+    push = min(1.0, cfg.COLLIDE_PUSH * scale)
+    spring = min(1.0, cfg.SPRING_BACK * scale)
     last = cfg.NUM_ITEMS if step == 1 else 1
     for i in range(first + step, last, step):
         bx, by = balls[i].x, balls[i].y
@@ -412,12 +451,12 @@ def collide(balls, bands, first, step):
             d2 = dx * dx + dy * dy
             if d2 < (br + rj) * (br + rj) and d2 > 1e-8:
                 d = math.sqrt(d2)
-                overlap = ((br + rj) - d) * cfg.COLLIDE_PUSH
+                overlap = ((br + rj) - d) * push
                 bx += abs(dx) * step / d * overlap
                 by += dy / d * overlap
             j -= step
-        bx -= (bx - balls[i].ox) * cfg.SPRING_BACK
-        by -= (by - balls[i].oy) * cfg.SPRING_BACK
+        bx -= (bx - balls[i].ox) * spring
+        by -= (by - balls[i].oy) * spring
         if abs(bx - balls[i].ox) < 0.1:
             bx = balls[i].ox
         if abs(by - balls[i].oy) < 0.1:
@@ -647,6 +686,7 @@ def run():
     # Held volume keys step on their own timer
     volume_key = None
     volume_next = 0.0
+    last_frame = time.time()
 
     running = True
 
@@ -703,13 +743,20 @@ def run():
                 balls = create_balls(w, h)
                 text_shown = None  # re-render the label for the new width
 
+            # Frame time, so the per-frame constants in the config keep their
+            # wall-clock feel. The loop presents at the display rate now rather
+            # than the audio hop rate, which is what the constants were
+            # originally written for.
+            now = time.time()
+            dt = min(max(now - last_frame, 1e-4), 0.1)
+            last_frame = now
+            scale = dt * cfg.REFERENCE_FPS
+
             # Held volume keys: step at a steady rate, counted from elapsed
             # time so the pace does not depend on the frame rate. pygame's own
             # key repeat is off, and switching it on would repeat the track
-            # keys and the space bar too. The render loop runs at the audio
-            # block rate, well under 60fps, so a frame can carry several steps.
+            # keys and the space bar too.
             if volume_key is not None:
-                now = time.time()
                 steps = int((now - volume_next) / cfg.VOLUME_REPEAT_INTERVAL)
                 if steps > 0:
                     steps = min(steps, 20)  # a stalled frame must not jump the volume
@@ -717,7 +764,7 @@ def run():
                     _volume_step(delta if volume_key == pygame.K_UP else -delta)
                     volume_next += steps * cfg.VOLUME_REPEAT_INTERVAL
 
-            bands, pan = audio.get_bands()
+            bands, pan = audio.get_bands(scale)
 
             # Stereo: bands leaning left pull their ball up, right push it down.
             # This moves the rest height, so the spring in collide() follows it
@@ -727,8 +774,8 @@ def run():
 
             # Physics
             mid = cfg.NUM_ITEMS // 2
-            collide(balls, bands, mid, -1)
-            collide(balls, bands, mid, 1)
+            collide(balls, bands, mid, -1, scale)
+            collide(balls, bands, mid, 1, scale)
 
             # Pack VBO: 4 verts per ball × 8 floats = [ox,oy, cx,cy, radius, R,G,B]
             for i, ball in enumerate(balls):

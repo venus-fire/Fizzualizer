@@ -9,6 +9,9 @@ FULLSCREEN = True
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 FPS = 60
+# The per-frame constants below are written for this rate. The app scales them
+# by the real frame time, so changing FPS does not change how the balls feel.
+REFERENCE_FPS = 43
 MOUSE_HIDE_DELAY = 3  # seconds of inactivity before cursor hides
 VOLUME_STEP = 1       # percent per arrow-up / arrow-down press
 VOLUME_REPEAT_DELAY = 0.25     # seconds held before the volume starts repeating

@@ -108,15 +108,27 @@ moves, and it is applied to the ball's rest height so the existing spring
 carries it there rather than teleporting it. `STEREO_SHIFT` in `config.py` is
 the maximum travel in pixels at full pan and full volume.
 
-## Analysis rate
+## Analysis rate and pacing
 
-The audio thread analyses a 2048 sample window every 1024 samples, so the loop
-runs at the hop rate: about 43 frames a second at 44.1kHz, independent of the
-audio device. `ATTACK` and `DECAY` are per-frame factors, so changing
-`FFT_SIZE` changes the frame rate and the feel along with it. `PEAK_DECAY` is
-how fast each band forgets its loudest recent moment: at 0.995 a quiet passage
-recovers from a preceding loud one in a second or two instead of staying
-squashed for ten.
+A reader thread keeps the newest 2048 sample window in a ring, advancing it
+every 1024 samples, about 43 times a second at 44.1kHz. The render loop takes
+whatever window is current and presents at `FPS`, so the app runs at the
+display rate instead of the audio hop rate. Reading the audio inline is what
+pinned the whole app to 43fps in bursts.
+
+`ATTACK`, `DECAY`, `PEAK_DECAY`, `PAN_SMOOTH`, `COLLIDE_PUSH` and `SPRING_BACK`
+are per-frame factors written for `REFERENCE_FPS`. The app scales them by the
+real frame time, so raising `FPS` smooths the motion without speeding it up.
+`PEAK_DECAY` is how fast each band forgets its loudest recent moment: at 0.995
+a quiet passage recovers from a preceding loud one in a second or two instead
+of staying squashed for ten.
+
+There is no working vsync on this stack. SDL's `vsync=1` does not throttle
+presentation under KWin, moderngl 5.13 has no swap interval, and no GLX
+swap-control entry point is reachable from Python; a tight render loop measures
+over a million presents a second either way. The compositor owns presentation,
+so there is no tearing to fix. What matters is that frames arrive evenly, and
+that is the `FPS` pacer.
 
 ## Desktop launcher
 
