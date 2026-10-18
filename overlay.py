@@ -181,7 +181,7 @@ class Overlay:
         self.disc_prog = ctx.program(vertex_shader=DISC_VERTEX,
                                      fragment_shader=DISC_FRAGMENT)
         self.disc_quad = ctx.buffer(DISC_QUAD.tobytes())
-        self.disc_vbo = ctx.buffer(reserve=MAX_INSTANCES * 9 * 4)
+        self.disc_vbo = ctx.buffer(reserve=MAX_INSTANCES * 7 * 4)
         self.disc_vao = ctx.vertex_array(
             self.disc_prog,
             [(self.disc_quad, '2f', 'in_offset'),
@@ -196,7 +196,10 @@ class Overlay:
         self.font = pygame.font.SysFont("monospace", LABEL_PX)
         self.header_font = pygame.font.SysFont("monospace", LABEL_PX, bold=True)
         self._rects = np.zeros((MAX_INSTANCES, 8), dtype=np.float32)
-        self._discs = np.zeros((MAX_INSTANCES, 9), dtype=np.float32)
+        # 7 floats per instance, matching the '2f 1f 4f/i' vertex format: a
+        # mismatch here makes every instance after the first read the wrong
+        # bytes, and the knobs come out as giant white discs.
+        self._discs = np.zeros((MAX_INSTANCES, 7), dtype=np.float32)
 
     # -- values ----------------------------------------------------------
 
