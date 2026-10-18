@@ -8,10 +8,15 @@ FULLSCREEN = True
 # desktop size cannot be read. Fullscreen always uses the display size.
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
-FPS = 60
+FPS = 0
 # The per-frame constants below are written for this rate. The app scales them
 # by the real frame time, so changing FPS does not change how the balls feel.
 REFERENCE_FPS = 43
+
+# Config sliders drawn along the top of the window. UI_ALPHA is the panel's
+# opacity, so 0.8 is 20% transparent.
+UI_SHOW = True
+UI_ALPHA = 0.8
 MOUSE_HIDE_DELAY = 3  # seconds of inactivity before cursor hides
 VOLUME_STEP = 1       # percent per arrow-up / arrow-down press
 VOLUME_REPEAT_DELAY = 0.25     # seconds held before the volume starts repeating

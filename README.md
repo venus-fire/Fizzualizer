@@ -67,6 +67,7 @@ Dependencies are auto-resolved by whichever launcher you use.
 | **Space** | Play/pause the active MPRIS player (via `playerctl`) |
 | **Left** / **Right** | Previous / next track |
 | **Up** / **Down** | System volume up / down by 1% |
+| **Tab** | Show / hide the config sliders |
 
 Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds
 once it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a
@@ -84,6 +85,25 @@ every 1.5s. It is truncated to fit the window width.
 `PATH` those do nothing and the corner stays empty; everything else works. The
 volume keys use `wpctl` (WirePlumber), falling back to `pactl`; the step size
 is `VOLUME_STEP` in `config.py`.
+
+## Config sliders
+
+`Tab` shows a strip of sliders along the top of the window: every numeric knob
+in `config.py`, each with its current value. Drag one and the change is live;
+on exit the changed lines are written back into `config.py`, so that file stays
+the single source of truth and stays hand-editable. Comments and the rest of
+the file are left alone.
+
+The panel is drawn at `UI_ALPHA` opacity, 0.8 by default, so it is 20%
+transparent. `UI_SHOW = False` starts with it hidden. `UI_ALPHA` is itself one
+of the sliders, so it can be dialled in from the app. The labels carry a one
+pixel drop shadow: the panel is translucent, and a bright ball behind it would
+otherwise wash the text out.
+
+Three of the sliders need the app to rebuild something rather than just read
+the value again, and it does: `SPACING_X`, `SPACING_Y` and `MIN_BALL_SIZE`
+recreate the balls, and `HUE_START` / `HUE_END` recompute the colour ramp.
+Everything else is read fresh each frame.
 
 ## Motion
 
@@ -112,9 +132,16 @@ the maximum travel in pixels at full pan and full volume.
 
 A reader thread keeps the newest 2048 sample window in a ring, advancing it
 every 1024 samples, about 43 times a second at 44.1kHz. The render loop takes
-whatever window is current and presents at `FPS`, so the app runs at the
-display rate instead of the audio hop rate. Reading the audio inline is what
-pinned the whole app to 43fps in bursts.
+whatever window is current and presents at the display's refresh rate, so the
+app runs at the panel rate instead of the audio hop rate. Reading the audio
+inline is what pinned the whole app to 43fps in bursts.
+
+`FPS = 0` means "use the refresh rate of the output the window is on", read
+from `xrandr` at startup and again when the window is resized. SDL exposes no
+refresh rate under XWayland and pygame 2.6 has no API for one, so `xrandr` is
+the only source: each connected output's first starred mode is the one it is
+running, and the window is matched to an output by size. Set `FPS` to a number
+to override it.
 
 `ATTACK`, `DECAY`, `PEAK_DECAY`, `PAN_SMOOTH`, `COLLIDE_PUSH` and `SPRING_BACK`
 are per-frame factors written for `REFERENCE_FPS`. The app scales them by the
@@ -128,7 +155,14 @@ presentation under KWin, moderngl 5.13 has no swap interval, and no GLX
 swap-control entry point is reachable from Python; a tight render loop measures
 over a million presents a second either way. The compositor owns presentation,
 so there is no tearing to fix. What matters is that frames arrive evenly, and
-that is the `FPS` pacer.
+that is the pacer.
+
+pygame's `Clock.tick` is not that pacer: it waits with `SDL_Delay`, which
+rounds down and undershoots by most of a millisecond a frame. At 60Hz that
+reads as 62fps and nobody notices, but on a 144Hz panel it reads as 165fps, a
+frame every 6.08ms against a 6.94ms period, and every frame lands somewhere
+different in the scan. `Pacer` sleeps to an absolute deadline instead and
+measures 6.96ms mean with 90% of frames inside 1ms of the period.
 
 ## Desktop launcher
 
@@ -166,6 +200,9 @@ Key ones:
 | Variable | Default | What it does |
 |----------|---------|--------------|
 | `SENSITIVITY` | 55 | Audio responsiveness (0-100) |
+| `FPS` | 0 | Frame rate target; 0 follows the output's refresh rate |
+| `UI_SHOW` | True | Show the config sliders at startup (Tab toggles) |
+| `UI_ALPHA` | 0.8 | Slider panel opacity, so 0.8 is 20% transparent |
 | `NO_PARTICLES` | True | Set `False` for bouncing particle effects |
 | `HUE_START` | 240 | Colour gradient start (blue) |
 | `HUE_END` | 350 | Colour gradient end (purple) |
@@ -184,7 +221,8 @@ Key ones:
 
 | File | What |
 |------|------|
-| `fizzualizer.py` | Main app (~520 lines) |
+| `fizzualizer.py` | Main app (~970 lines) |
+| `overlay.py` | The config sliders: layout, mouse, drawing, and the write-back |
 | `config.py` | All visualizer settings |
 | `run.sh` | Launcher (creates and uses `.venv`) |
 | `shell.nix` | Nix environment, alternative to `run.sh` |

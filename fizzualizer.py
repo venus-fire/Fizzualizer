@@ -10,6 +10,7 @@ Render: moderngl point sprites (single draw call for all 45 circles)
 import sys
 import math
 import os
+import re
 import subprocess
 import json
 import signal
@@ -20,6 +21,7 @@ import atexit
 import numpy as np
 
 import config as cfg
+from overlay import Overlay, GEOMETRY_ATTRS, HUE_ATTRS
 
 
 # =========================================================================
@@ -584,6 +586,78 @@ def hsv_to_rgb(h, s, v):
         return v, p, q
 
 
+def detect_refresh_rate(width, height):
+    """The refresh rate of the output the window is on.
+
+    SDL reports no refresh rate under XWayland and pygame 2.6 exposes no API
+    for one, so ask xrandr: each connected output's first starred mode is the
+    one it is running. The window is matched to an output by size, falling back
+    to the primary output and then to whatever is left.
+    """
+    try:
+        out = subprocess.run(['xrandr', '--current'], capture_output=True,
+                             text=True, timeout=3).stdout
+    except Exception:
+        return 0.0
+    outputs = []
+    current = None
+    for line in out.splitlines():
+        m = re.match(r'^(\S+) connected (primary )?(\d+)x(\d+)\+(\d+)\+(\d+)', line)
+        if m:
+            current = {'primary': bool(m.group(2)), 'w': int(m.group(3)),
+                       'h': int(m.group(4)), 'hz': 0.0}
+            outputs.append(current)
+            continue
+        if current is not None and current['hz'] == 0.0:
+            m2 = re.match(r'\s+\d+x\d+\s+([\d.]+)\*', line)
+            if m2:
+                current['hz'] = float(m2.group(1))
+    for o in outputs:
+        if o['hz'] and (o['w'], o['h']) == (width, height):
+            return o['hz']
+    for o in outputs:
+        if o['hz'] and o['primary']:
+            return o['hz']
+    for o in outputs:
+        if o['hz']:
+            return o['hz']
+    return 0.0
+
+
+class Pacer:
+    """Frame pacer that holds the interval to the display's period.
+
+    pygame's Clock.tick waits with SDL_Delay, which rounds down and undershoots
+    by most of a millisecond per frame. At 60Hz that reads as 62fps and nobody
+    notices; at 144Hz it reads as 165fps, a frame every 6.08ms instead of
+    6.94ms, and every frame lands at a different point in the panel's scan.
+    Sleeping to an absolute deadline holds the interval on the period: 6.96ms
+    mean, 90% of frames within 1ms of the 6.94ms period, against 6.08ms and
+    53% for Clock.tick.
+
+    SPIN is a busy-wait at the end of the frame, for a machine whose sleep
+    overshoots. It is off here because it measured no better than sleeping.
+    """
+
+    SPIN = 0.0
+
+    def __init__(self):
+        self.next = None
+
+    def tick(self, fps):
+        period = 1.0 / max(1.0, fps)
+        now = time.perf_counter()
+        if self.next is None or self.next < now - period:
+            self.next = now + period
+        else:
+            self.next += period
+        remaining = self.next - now
+        if remaining > self.SPIN:
+            time.sleep(remaining - self.SPIN)
+        while time.perf_counter() < self.next:
+            pass
+
+
 def run():
     import pygame
     import moderngl
@@ -629,6 +703,15 @@ def run():
     w, h = window.size
     print(f"Display: {w}x{h} {'fullscreen' if cfg.FULLSCREEN else 'windowed'}")
 
+    # The pacer's target: the refresh rate of the output the window is on,
+    # unless FPS in the config says otherwise.
+    refresh_hz = detect_refresh_rate(w, h)
+    if refresh_hz <= 0:
+        refresh_hz = 60.0
+    target_fps = cfg.FPS if cfg.FPS > 0 else refresh_hz
+    print(f"Refresh: {refresh_hz:.2f}Hz, target {target_fps:.0f}fps")
+    last_detect = time.time()
+
     # Compile shader program
     prog = ctx.program(vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER)
     prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
@@ -662,6 +745,10 @@ def run():
     text_size = (0, 0)
     text_shown = None
 
+    # Config sliders, drawn over everything else
+    overlay = Overlay(ctx, cfg, visible=cfg.UI_SHOW)
+    overlay.layout(w, h)
+
     # Audio
     audio = StreamCapture()
 
@@ -674,7 +761,7 @@ def run():
         for i in range(cfg.NUM_ITEMS)
     ]
 
-    clock = pygame.time.Clock()
+    pacer = Pacer()
     font = pygame.font.SysFont("monospace", 22)
     now_playing = NowPlaying()
 
@@ -693,6 +780,12 @@ def run():
     try:
         while running:
             for event in pygame.event.get():
+                if overlay.handle_event(event):
+                    if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN,
+                                      pygame.MOUSEBUTTONUP):
+                        pygame.mouse.set_visible(True)
+                        mouse_last_move = time.time()
+                    continue
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
@@ -742,6 +835,24 @@ def run():
                 text_prog['u_resolution'].write(np.array([w, h], dtype=np.float32).tobytes())
                 balls = create_balls(w, h)
                 text_shown = None  # re-render the label for the new width
+                overlay.layout(w, h)
+                # moving between outputs changes the refresh rate to pace to
+                if time.time() - last_detect > 0.5:
+                    last_detect = time.time()
+                    found = detect_refresh_rate(w, h)
+                    if found > 0:
+                        refresh_hz = found
+
+            # Sliders that need something rebuilt rather than just read again
+            changed = overlay.take_changed()
+            if changed & GEOMETRY_ATTRS:
+                balls = create_balls(w, h)
+            if changed & HUE_ATTRS:
+                hues = [
+                    (cfg.HUE_START + (cfg.HUE_END - cfg.HUE_START)
+                     * (i / cfg.NUM_ITEMS)) / 360.0
+                    for i in range(cfg.NUM_ITEMS)
+                ]
 
             # Frame time, so the per-frame constants in the config keep their
             # wall-clock feel. The loop presents at the display rate now rather
@@ -838,16 +949,23 @@ def run():
                 text_prog['u_tex'].value = 0
                 text_vao.render(moderngl.TRIANGLES, vertices=6)
 
+            target_fps = cfg.FPS if cfg.FPS > 0 else refresh_hz
+            overlay.info = f'{target_fps:.0f}fps'
+            overlay.draw(w, h)
             pygame.display.flip()
-            clock.tick(cfg.FPS)
+            pacer.tick(target_fps)
 
             # Auto-hide cursor after delay
-            if time.time() - mouse_last_move > cfg.MOUSE_HIDE_DELAY:
+            if (time.time() - mouse_last_move > cfg.MOUSE_HIDE_DELAY
+                    and overlay.dragging is None):
                 pygame.mouse.set_visible(False)
 
     finally:
         now_playing.stop()
         audio.close()
+        written = overlay.save(cfg.__file__)
+        if written:
+            print(f"Saved to config.py: {', '.join(written)}")
         pygame.quit()
 
 
