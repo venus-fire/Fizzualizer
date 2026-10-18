@@ -13,9 +13,11 @@ FPS = 0
 # by the real frame time, so changing FPS does not change how the balls feel.
 REFERENCE_FPS = 43
 
-# Config sliders drawn along the top of the window. UI_ALPHA is the panel's
-# opacity, so 0.8 is 20% transparent.
-UI_SHOW = True
+# Config sliders drawn along the top of the window. They appear while the
+# mouse is in the top UI_HOVER_ZONE of the window, as a fraction of its height,
+# so 0.34 is the top third; 0 keeps them up all the time. UI_ALPHA is the
+# panel's opacity, so 0.8 is 20% transparent.
+UI_HOVER_ZONE = 0.34
 UI_ALPHA = 0.8
 MOUSE_HIDE_DELAY = 3  # seconds of inactivity before cursor hides
 VOLUME_STEP = 1       # percent per arrow-up / arrow-down press
@@ -27,7 +29,7 @@ FFT_SIZE = 2048
 FFT_OVERLAP = 1024
 SAMPLE_RATE = 44100
 CHANNELS = 2           # stereo capture; the pan of each band moves its ball
-SENSITIVITY = 55.0
+SENSITIVITY = 53
 # Attack/Decay smoothing (0.0-1.0, higher = faster response)
 # These are per-frame factors and the loop runs at the hop rate, currently
 # 1024 frames = about 43fps at 44.1kHz. A frame-rate change changes the feel.
@@ -39,18 +41,18 @@ FREQ_MAX = 15000
 # forgets its loudest recent moment. 0.995 is about a 3 second half-life at the
 # current frame rate. Lower = a quiet passage recovers sooner after a loud one,
 # higher = the loud peak keeps squashing everything for longer.
-PEAK_DECAY = 0.995
+PEAK_DECAY = 0.993
 
 # Ball settings
 NUM_ITEMS = 45
 MIN_BALL_SIZE = 6     # radius floor, so a quiet band is still a visible dot
-MAX_BALL_SIZE = 300
+MAX_BALL_SIZE = 280
 # The collider is deliberately much smaller than the ball. It is what the
 # balls push each other with, so scaling it with the drawn size flings the
 # whole row off the screen. Raise it for more spread, lower it for a tighter
 # row.
-MAX_COLLIDER_SIZE = 150
-SPACING_X = 12
+MAX_COLLIDER_SIZE = 300
+SPACING_X = 36
 SPACING_Y = 12
 OFFSET_X = 800
 OFFSET_Y = 350
@@ -58,12 +60,12 @@ OFFSET_Y = 350
 # height, as a fraction of the remaining distance per frame. COLLIDE_PUSH is
 # how much of an overlap is resolved in one frame: 1.0 snaps a ball to the
 # contact point and pins it there, which is what made big balls freeze.
-SPRING_BACK = 0.05
-COLLIDE_PUSH = 0.2
+SPRING_BACK = 0.165
+COLLIDE_PUSH = 0.09
 # Stereo: a band leaning left pulls its ball up, right pushes it down. This is
 # the most it travels, in pixels, at full pan and full volume.
 STEREO_SHIFT = 120
-PAN_SMOOTH = 0.12     # per-frame follow of the pan, lower is steadier
+PAN_SMOOTH = 0.01     # per-frame follow of the pan, lower is steadier
 
 # Particle settings
 NO_PARTICLES = True   # set False to enable bouncing particles

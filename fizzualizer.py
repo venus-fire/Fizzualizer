@@ -745,8 +745,8 @@ def run():
     text_size = (0, 0)
     text_shown = None
 
-    # Config sliders, drawn over everything else
-    overlay = Overlay(ctx, cfg, visible=cfg.UI_SHOW)
+    # Config sliders, drawn over everything else while the mouse is up there
+    overlay = Overlay(ctx, cfg)
     overlay.layout(w, h)
 
     # Audio
@@ -779,6 +779,10 @@ def run():
 
     try:
         while running:
+            # The sliders follow the mouse: they are up while it is in the top
+            # of the window, and gone the moment it leaves.
+            overlay.update_hover(pygame.mouse.get_pos(), h)
+
             for event in pygame.event.get():
                 if overlay.handle_event(event):
                     if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN,

@@ -67,7 +67,6 @@ Dependencies are auto-resolved by whichever launcher you use.
 | **Space** | Play/pause the active MPRIS player (via `playerctl`) |
 | **Left** / **Right** | Previous / next track |
 | **Up** / **Down** | System volume up / down by 1% |
-| **Tab** | Show / hide the config sliders |
 
 Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds
 once it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a
@@ -88,15 +87,20 @@ is `VOLUME_STEP` in `config.py`.
 
 ## Config sliders
 
-`Tab` shows a strip of sliders along the top of the window: every numeric knob
-in `config.py`, each with its current value. Drag one and the change is live;
-on exit the changed lines are written back into `config.py`, so that file stays
-the single source of truth and stays hand-editable. Comments and the rest of
-the file are left alone.
+Move the mouse into the top third of the window and a strip of sliders appears
+along the top: every numeric knob in `config.py`, each with its current value.
+Move it away and they are gone. Drag one and the change is live; on exit the
+changed lines are written back into `config.py`, so that file stays the single
+source of truth and stays hand-editable. Comments and the rest of the file are
+left alone.
+
+`UI_HOVER_ZONE` is how much of the window height counts, 0.34 for the top
+third, and 0 keeps the sliders up all the time. It is itself a slider, so it
+can be dialled in from the app. A drag holds the panel open regardless, so
+pulling a slider down the screen does not make it vanish under the cursor.
 
 The panel is drawn at `UI_ALPHA` opacity, 0.8 by default, so it is 20%
-transparent. `UI_SHOW = False` starts with it hidden. `UI_ALPHA` is itself one
-of the sliders, so it can be dialled in from the app. The labels carry a one
+transparent, and `UI_ALPHA` is one of the sliders too. The labels carry a one
 pixel drop shadow: the panel is translucent, and a bright ball behind it would
 otherwise wash the text out.
 
@@ -201,7 +205,7 @@ Key ones:
 |----------|---------|--------------|
 | `SENSITIVITY` | 55 | Audio responsiveness (0-100) |
 | `FPS` | 0 | Frame rate target; 0 follows the output's refresh rate |
-| `UI_SHOW` | True | Show the config sliders at startup (Tab toggles) |
+| `UI_HOVER_ZONE` | 0.34 | How much of the window height shows the sliders; 0 keeps them up |
 | `UI_ALPHA` | 0.8 | Slider panel opacity, so 0.8 is 20% transparent |
 | `NO_PARTICLES` | True | Set `False` for bouncing particle effects |
 | `HUE_START` | 240 | Colour gradient start (blue) |

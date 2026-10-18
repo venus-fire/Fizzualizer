@@ -36,6 +36,7 @@ SLIDERS = [
     ('FPS',               'fps',           0.0,   240.0,   1.0,   True),
     ('VOLUME_STEP',       'volume step',   1.0,   10.0,    1.0,   True),
     ('MOUSE_HIDE_DELAY',  'mouse hide',    0.0,   20.0,    1.0,   True),
+    ('UI_HOVER_ZONE',     'hover zone',    0.0,   1.0,     0.01,  False),
     ('UI_ALPHA',          'ui alpha',      0.05,  1.0,     0.05,  False),
 ]
 
@@ -153,7 +154,7 @@ def _fmt(value, integer):
 class Overlay:
     """The slider panel. Owns its GL objects, the layout and the mouse."""
 
-    def __init__(self, ctx, cfg, visible=True):
+    def __init__(self, ctx, cfg, visible=False):
         self.ctx = ctx
         self.cfg = cfg
         self.visible = visible
@@ -251,10 +252,6 @@ class Overlay:
     def handle_event(self, event):
         """Return True if the panel used the event."""
         import pygame
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
-            self.visible = not self.visible
-            self.dragging = None
-            return True
         if not self.visible:
             return False
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -273,6 +270,22 @@ class Overlay:
                 return True
             self.hot = self._hit(event.pos)
         return False
+
+    def update_hover(self, pos, height):
+        """Show the panel while the mouse is in the top of the window.
+
+        `UI_HOVER_ZONE` is the fraction of the window height that counts, so
+        0.34 is the top third; 0 keeps the panel up all the time. A drag holds
+        it open, because pulling a slider off the top of the screen should not
+        make the panel disappear under the cursor.
+        """
+        zone = float(getattr(self.cfg, 'UI_HOVER_ZONE', 0.0))
+        if zone <= 0.0:
+            self.visible = True
+            return
+        if self.dragging is not None:
+            return
+        self.visible = pos[1] < height * zone
 
     def _hit(self, pos):
         mx, my = pos
@@ -383,7 +396,9 @@ class Overlay:
             string = f'{label} {shown}'
             tex, size = self._text(attr, string, TEXT_COLOR)
             self._quad(tex, size, tx, ty - 24, alpha)
-        head = 'config  tab hides this'
+        head = ('config  always on'
+                if float(getattr(self.cfg, 'UI_HOVER_ZONE', 0.0)) <= 0.0
+                else 'config  hover the top of the window')
         if self.info:
             head += f'   {self.info}'
         tex, size = self._text('__header__', head, HEADER_COLOR, bold=True)
