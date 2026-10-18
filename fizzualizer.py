@@ -186,8 +186,6 @@ class StreamCapture:
         pan = np.divide(mean_r - mean_l, total,
                         out=np.zeros(cfg.NUM_ITEMS), where=total > 1e-9)
         pan = np.nan_to_num(pan, nan=0.0, posinf=0.0, neginf=0.0)
-        # a quiet band's pan is mostly noise, so let it follow the level too
-        self._pan += 0.35 * (pan - self._pan)
 
         # Per-band adaptive normalization (each band tracks its own peak)
         # This prevents bass from drowning out treble. The release is slow
@@ -205,6 +203,12 @@ class StreamCapture:
         rising = raw > self._smoothed
         self._smoothed[rising] += cfg.ATTACK * (raw[rising] - self._smoothed[rising])
         self._smoothed[~rising] += cfg.DECAY * (raw[~rising] - self._smoothed[~rising])
+
+        # Pan, weighted by the band so a quiet band's noisy balance cannot yank
+        # its ball about, then smoothed so the ball is not chasing a per-frame
+        # twitch in the stereo image.
+        target = pan * self._smoothed
+        self._pan += cfg.PAN_SMOOTH * (target - self._pan)
         return self._smoothed.copy(), self._pan.copy()
 
 
@@ -389,7 +393,13 @@ def create_balls(width=None, height=None):
 
 
 def collide(balls, bands, first, step):
-    """Collision push + spring-back, ported from Fizzualizer.lua."""
+    """Collision push + spring-back, ported from Fizzualizer.lua.
+
+    The skin sets a colliding ball's position to the contact point outright,
+    which pins it to whatever it touched: a big ball then sits frozen while its
+    neighbours move. This pushes by a fraction of the overlap instead, so a
+    ball keeps sliding out of the way and stays live.
+    """
     last = cfg.NUM_ITEMS if step == 1 else 1
     for i in range(first + step, last, step):
         bx, by = balls[i].x, balls[i].y
@@ -402,11 +412,12 @@ def collide(balls, bands, first, step):
             d2 = dx * dx + dy * dy
             if d2 < (br + rj) * (br + rj) and d2 > 1e-8:
                 d = math.sqrt(d2)
-                bx = bj.x + abs(dx) * step / d * (br + rj)
-                by = bj.y + dy / d * (br + rj)
+                overlap = ((br + rj) - d) * cfg.COLLIDE_PUSH
+                bx += abs(dx) * step / d * overlap
+                by += dy / d * overlap
             j -= step
-        bx -= (bx - balls[i].ox) * 0.1
-        by -= (by - balls[i].oy) * 0.1
+        bx -= (bx - balls[i].ox) * cfg.SPRING_BACK
+        by -= (by - balls[i].oy) * cfg.SPRING_BACK
         if abs(bx - balls[i].ox) < 0.1:
             bx = balls[i].ox
         if abs(by - balls[i].oy) < 0.1:
@@ -712,7 +723,7 @@ def run():
             # This moves the rest height, so the spring in collide() follows it
             # elastically instead of teleporting the ball.
             for i, ball in enumerate(balls):
-                ball.oy = ball.base_y + pan[i] * bands[i] * cfg.STEREO_SHIFT
+                ball.oy = ball.base_y + pan[i] * cfg.STEREO_SHIFT
 
             # Physics
             mid = cfg.NUM_ITEMS // 2

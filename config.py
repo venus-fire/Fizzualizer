@@ -23,7 +23,7 @@ SENSITIVITY = 55.0
 # Attack/Decay smoothing (0.0-1.0, higher = faster response)
 # These are per-frame factors and the loop runs at the hop rate, currently
 # 1024 frames = about 43fps at 44.1kHz. A frame-rate change changes the feel.
-ATTACK = 0.9    # Rainmeter default 75; higher = the hit lands harder
+ATTACK = 0.5    # Rainmeter default 75; higher = the hit lands harder
 DECAY = 0.97    # Rainmeter default 100 (reversed: higher = slower decay)
 FREQ_MIN = 10
 FREQ_MAX = 15000
@@ -36,15 +36,26 @@ PEAK_DECAY = 0.995
 # Ball settings
 NUM_ITEMS = 45
 MIN_BALL_SIZE = 6     # radius floor, so a quiet band is still a visible dot
-MAX_BALL_SIZE = 200
-MAX_COLLIDER_SIZE = 160
+MAX_BALL_SIZE = 300
+# The collider is deliberately much smaller than the ball. It is what the
+# balls push each other with, so scaling it with the drawn size flings the
+# whole row off the screen. Raise it for more spread, lower it for a tighter
+# row.
+MAX_COLLIDER_SIZE = 150
 SPACING_X = 12
 SPACING_Y = 12
 OFFSET_X = 800
 OFFSET_Y = 350
+# Collision and spring. SPRING_BACK is how fast a ball returns to its rest
+# height, as a fraction of the remaining distance per frame. COLLIDE_PUSH is
+# how much of an overlap is resolved in one frame: 1.0 snaps a ball to the
+# contact point and pins it there, which is what made big balls freeze.
+SPRING_BACK = 0.05
+COLLIDE_PUSH = 0.2
 # Stereo: a band leaning left pulls its ball up, right pushes it down. This is
 # the most it travels, in pixels, at full pan and full volume.
 STEREO_SHIFT = 120
+PAN_SMOOTH = 0.12     # per-frame follow of the pan, lower is steadier
 
 # Particle settings
 NO_PARTICLES = True   # set False to enable bouncing particles

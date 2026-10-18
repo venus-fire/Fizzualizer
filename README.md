@@ -85,6 +85,20 @@ every 1.5s. It is truncated to fit the window width.
 volume keys use `wpctl` (WirePlumber), falling back to `pactl`; the step size
 is `VOLUME_STEP` in `config.py`.
 
+## Motion
+
+The skin's collision code sets a colliding ball's position to the contact point
+outright. That pins the ball to whatever it touched, so a big ball sits frozen
+while everything around it moves, and a band change of any size teleports it.
+This pushes by a fraction of the overlap instead, so a ball slides out of the
+way and keeps moving. `COLLIDE_PUSH` is that fraction and `SPRING_BACK` is how
+fast it returns to its rest position.
+
+`MAX_COLLIDER_SIZE` is what the balls push each other with, and it is much
+smaller than `MAX_BALL_SIZE` on purpose: it is the knob for how far apart a
+loud passage spreads the row. Raise it and the row fans out until it leaves the
+window; lower it and the balls pile into a tight row.
+
 ## Stereo
 
 Capture is stereo, and each band's left/right balance moves its ball: a band
@@ -144,8 +158,12 @@ Key ones:
 | `HUE_START` | 240 | Colour gradient start (blue) |
 | `HUE_END` | 350 | Colour gradient end (purple) |
 | `MIN_BALL_SIZE` | 6 | Radius floor, so a silent band is still a visible dot |
-| `MAX_BALL_SIZE` | 200 | Maximum ball diameter in pixels |
+| `MAX_BALL_SIZE` | 300 | Maximum ball radius in pixels |
+| `MAX_COLLIDER_SIZE` | 150 | Radius the balls push each other with |
+| `COLLIDE_PUSH` | 0.2 | Fraction of an overlap resolved in one frame |
+| `SPRING_BACK` | 0.05 | How fast a ball returns to its rest position |
 | `STEREO_SHIFT` | 120 | Most a ball travels up or down for the stereo pan |
+| `PAN_SMOOTH` | 0.12 | How quickly a ball follows a change in the pan |
 | `PEAK_DECAY` | 0.995 | How fast a band forgets its loudest recent moment |
 | `SPACING_X` | 12 | Horizontal spacing between balls |
 | `SPACING_Y` | 12 | Vertical offset for staggered rows |
