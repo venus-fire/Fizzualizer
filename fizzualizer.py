@@ -84,6 +84,9 @@ class StreamCapture:
         self._smoothed = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
         self._pan = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
         self._per_band_peak = np.ones(cfg.NUM_ITEMS, dtype=np.float32) * 1e-6
+        self._band_ratio = np.zeros(cfg.NUM_ITEMS, dtype=np.float32)
+        self._ref_db = -60.0
+        self._gate = 1.0
         self._last_call = 0.0
 
         # The audio is read off the render loop so the loop can present at the
@@ -255,8 +258,29 @@ class StreamCapture:
         decay = cfg.PEAK_DECAY ** scale
         self._per_band_peak = np.maximum(raw, self._per_band_peak * decay)
         self._per_band_peak = np.maximum(self._per_band_peak, 1e-6)
-        raw = raw / self._per_band_peak
-        raw = np.clip(raw, 0.0, 1.0)
+        self._band_ratio = raw / self._per_band_peak
+        self._band_ratio = np.clip(self._band_ratio, 0.0, 1.0)
+
+        # Common normalization, on top of the per-band one. A band dividing
+        # by its own peak reads full as soon as that peak has decayed, so a
+        # hushed passage can look as busy as a chorus. This measures the
+        # current loudness of the whole block in dB against a slowly falling
+        # reference, and scales every band by how far below that reference the
+        # moment is. The balance between bands is untouched, so the shape of
+        # the picture is preserved.
+        # Loudness is the window's own RMS, not the band magnitudes: an
+        # unweighted average over 45 log-spaced bands reads a thin bass note
+        # as quiet and a wash of broadband hiss as loud, which is backwards.
+        rms = float(np.sqrt(np.mean(window.astype(np.float64) ** 2)))
+        db = 20.0 * math.log10(max(rms, 1e-9))
+        self._ref_db = max(db, self._ref_db - cfg.GLOBAL_REF_FALL * scale / cfg.REFERENCE_FPS)
+        below = self._ref_db - db
+        target_gate = 1.0 - min(1.0, max(0.0, below / max(cfg.GLOBAL_RANGE_DB, 1e-3)))
+        if target_gate > self._gate:
+            self._gate += min(1.0, cfg.GLOBAL_ATTACK * scale) * (target_gate - self._gate)
+        else:
+            self._gate += (1.0 - (1.0 - cfg.GLOBAL_RELEASE) ** scale) * (target_gate - self._gate)
+        raw = self._band_ratio * (cfg.GLOBAL_FLOOR + (1.0 - cfg.GLOBAL_FLOOR) * self._gate)
 
         sens = 0.5 + cfg.SENSITIVITY / 100.0 * 1.5
         raw = np.clip(raw * sens, 0.0, 1.0)
