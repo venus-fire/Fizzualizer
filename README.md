@@ -1,7 +1,7 @@
 # Fizzualizer
 
-A real-time audio visualizer for Linux (PipeWire) — 45 frequency-analyzed
-circles with collision physics, HSV color gradient, and optional particles.
+A real-time audio visualizer for Linux (PipeWire): 45 frequency-analyzed
+circles with collision physics and an HSV color gradient.
 
 This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://github.com/undefinist/Fizzualizer)
 (an audio visualizer for the Windows desktop widget engine Rainmeter), rebuilt
@@ -37,14 +37,18 @@ Dependencies are auto-resolved by whichever launcher you use.
 
 ## How it works
 
-1. **Audio capture** — `pw-cat --record` with the `stream.capture.sink=true`
-   PipeWire property captures from the default speaker's **monitor** (system
-   audio output, not the microphone). This is the same approach used by
-   [cava](https://github.com/karlstav/cava).
+1. **Audio capture** — `parec` reads the default speaker's **monitor**, which is
+   system audio output rather than the microphone. `pw-cat --record` with the
+   `stream.capture.sink=true` property is the fallback for a host without pulse
+   utils; both are the approach [cava](https://github.com/karlstav/cava) uses.
+   parec comes first because `pw-cat` and `pw-record` both hand back about a
+   quarter of a percent of NaN and runaway samples when their stdout is a pipe,
+   which is enough to blank every band.
 
 2. **FFT analysis** — 45 logarithmically-spaced frequency bands (10 Hz – 15 kHz)
-   from a 2048-point real FFT, with attack/decay smoothing and per-band
-   adaptive normalization so treble bands aren't drowned out by bass.
+   from a 2048-point real FFT, with attack/decay smoothing, a per-band adaptive
+   normalizer so treble bands aren't drowned out by bass, and a common
+   normalizer on top so the picture tracks how loud the music actually is.
 
 3. **Collision physics** — Two-pass collision detection (centre outward in
    both directions) ported directly from the Rainmeter Lua. Each ball is
@@ -88,11 +92,16 @@ is `VOLUME_STEP` in `config.py`.
 ## Config sliders
 
 Move the mouse into the top third of the window and a strip of sliders appears
-along the top: every numeric knob in `config.py`, each with its current value.
-Move it away and they are gone. Drag one and the change is live; on exit the
-changed lines are written back into `config.py`, so that file stays the single
-source of truth and stays hand-editable. Comments and the rest of the file are
-left alone.
+along the top, one for every numeric knob in `config.py`, each showing its
+current value. Move it away and they are gone. The panel stays hidden at launch
+until the pointer actually moves, so opening the app with the cursor resting in
+the top of the screen does not put it on the screen.
+
+Drag a slider and the change is live, and it is written back into `config.py`
+when the drag is released, or after a second without movement if the release
+never arrives. `config.py` therefore stays the single source of truth and stays
+hand-editable, and a kill or a crash cannot lose a session's tuning. Only the
+number changes: comments and the rest of the file are left alone.
 
 `UI_HOVER_ZONE` is how much of the window height counts, 0.34 for the top
 third, and 0 keeps the sliders up all the time. It is itself a slider, so it
@@ -132,6 +141,28 @@ moves, and it is applied to the ball's rest height so the existing spring
 carries it there rather than teleporting it. `STEREO_SHIFT` in `config.py` is
 the maximum travel in pixels at full pan and full volume.
 
+## Loudness
+
+Each band divides by its own recent peak. That keeps bass from drowning out
+treble, but on its own it makes the picture loudness-invariant: the peak decays
+to meet a quiet passage within seconds, so a hushed stretch reads as fully as a
+chorus. A common normalizer runs after the per-band divide and scales all 45
+bands by how loud the moment is against a falling reference measured in dB,
+leaving the balance between the bands untouched.
+
+On a piano track whose quiet passages sit about 30 dB down, comparing the
+quietest and loudest three second stretches, the mean band value went from 0.37
+against 0.41 to 0.20 against 0.37. `GLOBAL_FLOOR` is how much of a band value
+survives a fully shut gate and is the one to tune by ear, `GLOBAL_RANGE_DB` is
+how far the music has to drop to shut it, and `GLOBAL_REF_FALL` is how fast the
+reference forgets, in dB per second.
+
+Loudness comes from the window's own RMS rather than from the band magnitudes:
+an unweighted average over 45 log-spaced bands reads a thin bass note as quiet
+and a wash of broadband hiss as loud, which inverts the gate on sparse
+material. Sparse ambient music with almost no sustained dynamic range therefore
+barely moves the gate, which is the limit of the approach rather than a bug.
+
 ## Analysis rate and pacing
 
 A reader thread keeps the newest 2048 sample window in a ring, advancing it
@@ -147,12 +178,13 @@ the only source: each connected output's first starred mode is the one it is
 running, and the window is matched to an output by size. Set `FPS` to a number
 to override it.
 
-`ATTACK`, `DECAY`, `PEAK_DECAY`, `PAN_SMOOTH`, `COLLIDE_PUSH` and `SPRING_BACK`
-are per-frame factors written for `REFERENCE_FPS`. The app scales them by the
-real frame time, so raising `FPS` smooths the motion without speeding it up.
-`PEAK_DECAY` is how fast each band forgets its loudest recent moment: at 0.995
-a quiet passage recovers from a preceding loud one in a second or two instead
-of staying squashed for ten.
+`ATTACK`, `DECAY`, `PEAK_DECAY`, `PAN_SMOOTH`, `COLLIDE_PUSH`, `SPRING_BACK`,
+`GLOBAL_ATTACK` and `GLOBAL_RELEASE` are per-frame factors written for
+`REFERENCE_FPS`. The app scales them by the real frame time, so raising `FPS`
+smooths the motion without speeding it up. `PEAK_DECAY` is how fast each band
+forgets its loudest recent moment: at 0.993 that is about a three second
+half-life, so a band recovers from a preceding loud passage in a couple of
+seconds instead of staying squashed for ten.
 
 There is no working vsync on this stack. SDL's `vsync=1` does not throttle
 presentation under KWin, moderngl 5.13 has no swap interval, and no GLX
@@ -195,39 +227,88 @@ launcher reads as an empty icon.
 
 ## Configuration
 
-Edit `config.py` to adjust colours, ball size, spacing, sensitivity,
-particles, etc. All settings mirror the original Rainmeter
-`Visualizer.ini` variables.
+Every setting lives in `config.py`, which stays the single source of truth and
+stays hand-editable. Defaults below are the shipped values.
 
-Key ones:
+### Display
 
-| Variable | Default | What it does |
-|----------|---------|--------------|
-| `SENSITIVITY` | 55 | Audio responsiveness (0-100) |
-| `FPS` | 0 | Frame rate target; 0 follows the output's refresh rate |
-| `UI_HOVER_ZONE` | 0.34 | How much of the window height shows the sliders; 0 keeps them up |
-| `UI_ALPHA` | 0.8 | Slider panel opacity, so 0.8 is 20% transparent |
-| `NO_PARTICLES` | True | Set `False` for bouncing particle effects |
-| `HUE_START` | 240 | Colour gradient start (blue) |
-| `HUE_END` | 350 | Colour gradient end (purple) |
-| `MIN_BALL_SIZE` | 6 | Radius floor, so a silent band is still a visible dot |
-| `MAX_BALL_SIZE` | 300 | Maximum ball radius in pixels |
-| `MAX_COLLIDER_SIZE` | 150 | Radius the balls push each other with |
-| `COLLIDE_PUSH` | 0.2 | Fraction of an overlap resolved in one frame |
-| `SPRING_BACK` | 0.05 | How fast a ball returns to its rest position |
-| `STEREO_SHIFT` | 120 | Most a ball travels up or down for the stereo pan |
-| `PAN_SMOOTH` | 0.12 | How quickly a ball follows a change in the pan |
-| `PEAK_DECAY` | 0.995 | How fast a band forgets its loudest recent moment |
-| `SPACING_X` | 12 | Horizontal spacing between balls |
-| `SPACING_Y` | 12 | Vertical offset for staggered rows |
+| Setting | Default | What it does |
+|---|---|---|
+| `FULLSCREEN` | `True` | Start fullscreen. Fullscreen always uses the display's own resolution. |
+| `WINDOW_WIDTH` | `1920` | Window width when not fullscreen, and the fallback if the desktop size cannot be read. |
+| `WINDOW_HEIGHT` | `1080` | Window height, same as above. |
+| `FPS` | `0` | Frame rate target. 0 follows the refresh rate of the output the window is on. |
+| `REFERENCE_FPS` | `43` | The rate the per-frame constants were written for. The app scales them by real frame time, so changing FPS does not change how the motion feels. |
+
+### Sliders and input
+
+| Setting | Default | What it does |
+|---|---|---|
+| `UI_HOVER_ZONE` | `0.34` | Fraction of the window height that shows the slider panel, 0.34 for the top third. 0 keeps it up permanently. |
+| `UI_ALPHA` | `0.8` | Slider panel opacity, so 0.8 is 20% transparent. |
+| `MOUSE_HIDE_DELAY` | `3` | Seconds of no mouse movement before the cursor hides. |
+| `VOLUME_STEP` | `1` | Volume percent per up or down key press. |
+| `VOLUME_REPEAT_DELAY` | `0.25` | Seconds a volume key is held before it starts repeating. |
+| `VOLUME_REPEAT_INTERVAL` | `0.05` | Seconds between volume steps while held. |
+
+### Audio analysis
+
+| Setting | Default | What it does |
+|---|---|---|
+| `FFT_SIZE` | `2048` | Samples per analysis window. The window advances by half of this, so analyses overlap. |
+| `SAMPLE_RATE` | `44100` | Capture rate. Must be a rate the capture tool can resample to. |
+| `FREQ_MIN` | `10` | Lowest frequency the first band covers, in Hz. |
+| `FREQ_MAX` | `15000` | Highest frequency the last band covers, in Hz. |
+| `NUM_ITEMS` | `45` | Number of bands, which is also the number of balls. |
+| `SENSITIVITY` | `30` | Overall responsiveness, 0 to 100. Higher means a quiet band reads louder. |
+| `ATTACK` | `0.5` | How fast a band value rises toward a louder reading. Higher lands the hit harder. |
+| `DECAY` | `0.97` | How fast a band value falls back. Higher is slower, so the tail lasts longer. |
+
+### Normalization
+
+| Setting | Default | What it does |
+|---|---|---|
+| `PEAK_DECAY` | `0.993` | How fast each band forgets its own loudest recent moment. At the current hop rate 0.993 is about a three second half-life. |
+| `GLOBAL_FLOOR` | `0.53` | The common normalizer's floor: the share of a band value that survives when the gate is fully shut. 1.0 turns the common normalizer off, 0.0 lets a silent passage collapse the picture. |
+| `GLOBAL_RANGE_DB` | `12.0` | How far below the reference a passage has to drop before the gate is fully shut. |
+| `GLOBAL_REF_FALL` | `0.2` | How fast the reference falls, in dB per second. Lower means longer memory of the loudest recent moment. |
+| `GLOBAL_ATTACK` | `0.35` | Per-frame rise of the gate. The rise is quicker than the fall so a drop is read at once. |
+| `GLOBAL_RELEASE` | `0.06` | Per-frame fall of the gate. Higher follows a quiet passage down faster. |
+
+### Balls
+
+| Setting | Default | What it does |
+|---|---|---|
+| `MIN_BALL_SIZE` | `0` | Radius floor, so a silent band still draws something. 0 means the ball is not drawn at all. |
+| `MAX_BALL_SIZE` | `230` | Radius of a band at full value. |
+| `MAX_COLLIDER_SIZE` | `390` | Radius the balls push each other with. Much smaller than the drawn size on purpose: it sets how far a loud passage spreads the row. |
+| `SPACING_X` | `30` | Horizontal distance between ball rest positions. |
+| `SPACING_Y` | `6` | Vertical offset between staggered rows. |
+| `SPRING_BACK` | `0.255` | How fast a ball returns to its rest height, as a fraction of the remaining distance per frame. |
+| `COLLIDE_PUSH` | `0.14` | Fraction of an overlap resolved in one frame. 1.0 pins a ball to the contact point, which is what made big balls freeze. |
+| `STEREO_SHIFT` | `120` | Most a ball travels up or down for the stereo pan, in pixels, at full pan and full volume. |
+| `PAN_SMOOTH` | `0.01` | How quickly a ball follows a change in the pan. Lower is steadier. |
+
+### Colour
+
+| Setting | Default | What it does |
+|---|---|---|
+| `HUE_START` | `240` | Gradient start, 240 is blue. |
+| `HUE_END` | `350` | Gradient end, 350 is purple. |
+| `SAT_ZERO` | `0.75` | Saturation of a band reading exactly zero. Its own value, because a band at 0.001 uses the ramp below and the two sitting side by side is what looks washed out. |
+| `SAT_MIN` | `0.69` | Saturation at the bottom of the ramp. |
+| `SAT_MAX` | `1` | Saturation at full band value. |
+| `VAL_ZERO` | `0.75` | Value, meaning brightness, of a band reading exactly zero. |
+| `VAL_MIN` | `0.52` | Value at the bottom of the ramp. |
+| `VAL_MAX` | `1` | Value at full band value. |
 
 ## Files
 
 | File | What |
 |------|------|
-| `fizzualizer.py` | Main app (~970 lines) |
+| `fizzualizer.py` | Main app (~1030 lines) |
 | `overlay.py` | The config sliders: layout, mouse, drawing, and the write-back |
-| `config.py` | All visualizer settings |
+| `config.py` | All visualizer settings, 42 of them |
 | `run.sh` | Launcher (creates and uses `.venv`) |
 | `shell.nix` | Nix environment, alternative to `run.sh` |
 | `fizzualizer.desktop` | Desktop entry template (`@EXEC@` / `@PATH@` filled at install) |

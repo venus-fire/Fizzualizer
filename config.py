@@ -26,9 +26,7 @@ VOLUME_REPEAT_INTERVAL = 0.05  # seconds between steps while held (20 steps/s)
 
 # Audio settings
 FFT_SIZE = 2048
-FFT_OVERLAP = 1024
 SAMPLE_RATE = 44100
-CHANNELS = 2           # stereo capture; the pan of each band moves its ball
 SENSITIVITY = 30
 # Attack/Decay smoothing (0.0-1.0, higher = faster response)
 # These are per-frame factors and the loop runs at the hop rate, currently
@@ -76,8 +74,6 @@ MAX_BALL_SIZE = 230
 MAX_COLLIDER_SIZE = 390
 SPACING_X = 30
 SPACING_Y = 6
-OFFSET_X = 800
-OFFSET_Y = 350
 # Collision and spring. SPRING_BACK is how fast a ball returns to its rest
 # height, as a fraction of the remaining distance per frame. COLLIDE_PUSH is
 # how much of an overlap is resolved in one frame: 1.0 snaps a ball to the
@@ -88,11 +84,6 @@ COLLIDE_PUSH = 0.14
 # the most it travels, in pixels, at full pan and full volume.
 STEREO_SHIFT = 120
 PAN_SMOOTH = 0.01     # per-frame follow of the pan, lower is steadier
-
-# Particle settings
-NO_PARTICLES = True   # set False to enable bouncing particles
-PARTICLE_SIZE = 1
-PARTICLE_COLOR = (255, 255, 255)
 
 # Color settings (HSV)
 HUE_START = 240       # blue
@@ -107,8 +98,3 @@ SAT_MAX = 1
 VAL_ZERO = 0.75
 VAL_MIN = 0.52
 VAL_MAX = 1
-
-# Audio device
-# Set to None to auto-select the default monitor (loopback) device
-# Or set a device index/name substring
-AUDIO_DEVICE = None
