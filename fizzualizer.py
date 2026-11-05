@@ -99,23 +99,44 @@ class StreamCapture:
             sys.exit(1)
         self._sink_name = sink_name
         print(f"Audio: {sink_name} (sink monitor, {self._channels}ch)")
-        try:
-            self._proc = subprocess.Popen(
-                ['pw-cat', '--record',
-                 '--format', 'f32',
-                 '--rate', str(cfg.SAMPLE_RATE),
-                 '--channels', str(self._channels),
-                 '--target', sink_name,
-                 '--properties', '{"stream.capture.sink":true}',
-                 '--latency', f'{self._hop * 1000 // cfg.SAMPLE_RATE}ms',
-                 '-'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                bufsize=self._hop_bytes * 4,
-            )
-        except FileNotFoundError:
-            print("ERROR: pw-cat not found. Install pipewire.jack.", file=sys.stderr)
-            raise
+        # parec first. pw-cat and pw-record both hand back individual NaN and
+        # huge-sample floats when stdout is a pipe (measured 0.25% of samples
+        # on PipeWire 1.6.10), which makes every FFT band read zero and the
+        # visualizer draw nothing. The same tools writing to a file are clean,
+        # so it is their stdout path, and parec's pipe is clean at the same
+        # rate. Keep pw-cat as the fallback for a host without pulse utils.
+        cmds = [
+            ['parec', '--device', f'{sink_name}.monitor',
+             '--format=float32le', '--rate', str(cfg.SAMPLE_RATE),
+             '--channels', str(self._channels),
+             f'--latency-msec={max(1, self._hop * 1000 // cfg.SAMPLE_RATE)}'],
+            ['pw-cat', '--record',
+             '--format', 'f32',
+             '--rate', str(cfg.SAMPLE_RATE),
+             '--channels', str(self._channels),
+             '--target', sink_name,
+             '--properties', '{"stream.capture.sink":true}',
+             '--latency', f'{self._hop * 1000 // cfg.SAMPLE_RATE}ms',
+             '-'],
+        ]
+        last_err = None
+        for cmd in cmds:
+            try:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=self._hop_bytes * 4,
+                )
+            except FileNotFoundError as e:
+                last_err = e
+                continue
+            print(f"Capture: {cmd[0]}")
+            break
+        if self._proc is None:
+            print(f"ERROR: no audio capture tool worked: {last_err}",
+                  file=sys.stderr)
+            raise last_err if last_err else RuntimeError("no audio capture tool")
         StreamCapture._processes.append(self._proc)
         self._register_atexit()
         time.sleep(0.5)
@@ -165,7 +186,13 @@ class StreamCapture:
             return None
         if len(raw) < self._hop_bytes:
             return None
-        return np.frombuffer(raw, dtype=np.float32).reshape(-1, self._channels).copy()
+        chunk = np.frombuffer(raw, dtype=np.float32).reshape(-1, self._channels).copy()
+        # A capture backend can hand back NaN or runaway samples in the middle
+        # of a stream. One NaN pollutes the whole FFT and every band reads
+        # zero, so the picture goes blank and stays blank. Scrub the block.
+        if not np.isfinite(chunk).all():
+            chunk = np.nan_to_num(chunk, nan=0.0, posinf=0.0, neginf=0.0)
+        return chunk
 
     def _reader(self):
         """Keep the newest window in the ring, off the render loop."""
