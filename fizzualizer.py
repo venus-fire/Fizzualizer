@@ -797,7 +797,7 @@ def run():
     text_shown = None
 
     # Config sliders, drawn over everything else while the mouse is up there
-    overlay = Overlay(ctx, cfg)
+    overlay = Overlay(ctx, cfg, config_path=cfg.__file__)
     overlay.layout(w, h)
 
     # Audio

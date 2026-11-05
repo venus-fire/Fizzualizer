@@ -9,6 +9,7 @@ and the tracks, discs for the knobs, and one textured quad per label.
 """
 
 import re
+import time
 
 import numpy as np
 
@@ -157,13 +158,18 @@ def _fmt(value, integer):
 class Overlay:
     """The slider panel. Owns its GL objects, the layout and the mouse."""
 
-    def __init__(self, ctx, cfg, visible=False):
+    def __init__(self, ctx, cfg, visible=False, config_path=None):
         self.ctx = ctx
         self.cfg = cfg
         self.visible = visible
         self.changed = set()      # attributes changed since the last frame
         self.dirty = set()        # every attribute touched, for the save
         self.dragging = None
+        # Where the sliders write themselves back. Set so a change reaches
+        # config.py while the app is still running: the values people tune
+        # with are the ones they expect to survive a crash or a kill.
+        self.config_path = config_path
+        self._last_change = 0.0
 
         self.hot = None
         self._w = self._h = 0
@@ -219,6 +225,7 @@ class Overlay:
             setattr(self.cfg, name, v)
             self.changed.add(name)
             self.dirty.add(name)
+            self._last_change = time.time()
 
     def _range(self, name):
         for attr, _label, lo, hi, step, _i in SLIDERS:
@@ -266,6 +273,7 @@ class Overlay:
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             if self.dragging:
                 self.dragging = None
+                self.flush()
                 return True
         elif event.type == pygame.MOUSEMOTION:
             if self.dragging:
@@ -283,6 +291,11 @@ class Overlay:
         make the panel disappear under the cursor.
         """
         zone = float(getattr(self.cfg, 'UI_HOVER_ZONE', 0.0))
+        # Nothing was released, because the drag was still live when the mouse
+        # left, so a settled value is written on a timer instead.
+        if (self.dirty and self.dragging is None and self.config_path
+                and time.time() - self._last_change > 1.0):
+            self.flush()
         if zone <= 0.0:
             self.visible = True
             return
@@ -409,6 +422,19 @@ class Overlay:
 
     # -- saving ----------------------------------------------------------
 
+    def flush(self):
+        """Write the touched values to config.py right now.
+
+        Called when a drag is released and after a slider has been still for
+        a second, so the tuned values are on disk while the app keeps running.
+        """
+        if not self.config_path:
+            return []
+        written = self.save(self.config_path)
+        if written:
+            print(f'Saved to config.py: {", ".join(written)}', flush=True)
+        return written
+
     def save(self, path):
         """Write the changed values back into config.py, keeping the rest of
         the file, comments included, exactly as it was."""
@@ -443,6 +469,9 @@ class Overlay:
             except OSError as exc:
                 print(f'could not write {path}: {exc}', flush=True)
                 return []
+            # Those are on disk now, so the exit save has nothing to redo
+            # unless a later drag touches them again.
+            self.dirty.difference_update(written)
         return written
 
 
