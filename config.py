@@ -51,7 +51,7 @@ PEAK_DECAY = 0.993
 # GLOBAL_FLOOR is how much of the band value survives when the gate is fully
 # shut: 1.0 turns the whole thing off, 0.0 lets a silent passage collapse the
 # picture to nothing. Start high and walk it down.
-GLOBAL_FLOOR = 0.30
+GLOBAL_FLOOR = 0.53
 # Below the reference by this many dB, the gate is fully shut. This sets how
 # much a passage has to drop before the balls start shrinking.
 GLOBAL_RANGE_DB = 12.0
