@@ -170,6 +170,10 @@ class Overlay:
         # with are the ones they expect to survive a crash or a kill.
         self.config_path = config_path
         self._last_change = 0.0
+        # Stays False until the pointer position changes, so the panel does not
+        # appear at launch just because the pointer sits in the top zone.
+        self._armed = False
+        self._start_pos = None
 
         self.hot = None
         self._w = self._h = 0
@@ -298,6 +302,18 @@ class Overlay:
             self.flush()
         if zone <= 0.0:
             self.visible = True
+            return
+        # The pointer is wherever it was left when the app opened, often in the
+        # top of the screen, and SDL sends a motion event or two at launch.
+        # Only a position that actually differs from the launch one counts as
+        # the mouse arriving, so the panel is hidden until it is really moved.
+        if not self._armed:
+            if self._start_pos is None:
+                self._start_pos = tuple(pos)
+            elif tuple(pos) != self._start_pos:
+                self._armed = True
+        if not self._armed:
+            self.visible = False
             return
         if self.dragging is not None:
             return
