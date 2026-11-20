@@ -25,7 +25,13 @@ Requires a Linux system with **PipeWire**.
 
 `run.sh` creates a local `.venv` (numpy, pygame, moderngl) on first run and
 launches from it. On an immutable distro (Bazzite, Silverblue) this is the
-path that works — the Nix route below needs Nix installed.
+path that works, since the Nix route below needs Nix installed. It asks `uv` for a
+3.13 interpreter first, on PATH or at `~/.hermes/bin/uv`, and only falls back to
+plain `python3 -m venv` when neither exists. That order matters: a venv built on
+the distro's `/usr/bin/python3` stops importing its own packages as soon as the
+image moves its python minor, and the failure reads as a broken app rather than a
+broken environment. If `.venv` ever fails that way, delete it and re-run with uv
+present.
 
 Or with Nix:
 
@@ -302,6 +308,69 @@ stays hand-editable. Defaults below are the shipped values.
 | `VAL_MIN` | `0.52` | Value at the bottom of the ramp. |
 | `VAL_MAX` | `1` | Value at full band value. |
 
+## Web build
+
+`web/` is the same visualizer as a web page: no build step, no dependencies, no
+install. Three ways in, and they are not equivalent:
+
+| Source | What it captures | Works in |
+|---|---|---|
+| **Load audio** | an audio file the page plays | any browser |
+| **Share audio** | tab or system audio through `getDisplayMedia` | Chrome and Edge. Firefox and Safari hand back a video-only stream |
+| **Microphone** | the microphone, which on PipeWire often includes a monitor source of the output | any browser, with permission |
+
+The browser cannot read system audio on its own, which is the one thing the
+desktop build does that this one cannot. Sharing a tab's audio is the closest
+equivalent; a device with a PipeWire monitor in its input list makes the
+microphone route a real system-audio path.
+
+Run it with any static file server, or use the copy served at
+`https://plausibly-exceeding-murkiness.ngrok-free.dev/fizzualizer/` (see
+`~/.config/home-gateway/AGENTS.md` for that route):
+
+```bash
+cd web && python3 -m http.server 8199 --bind 127.0.0.1
+# http://127.0.0.1:8199/
+```
+
+It has to be served over HTTP, not opened as a `file://` path, because ES
+modules and the audio APIs are blocked on `file://`.
+
+Keys: **F** toggles fullscreen, **H** toggles the settings panel. Everything the
+desktop build binds to MPRIS (space, left, right, and the volume keys) has no
+browser equivalent and is not bound.
+
+Differences from the desktop build, all deliberate:
+
+- **No PipeWire.** See the table above.
+- **Settings live in `web/config.js` and in localStorage.** The panel writes
+  each change into this browser's storage rather than into a file, since a page
+  cannot write its own source. `config.js` holds the defaults; a slider that has
+  been moved stores only its difference from them.
+- **The layout scales to the window.** Every spatial setting is in pixels for a
+  1920x1080 window, which is what the desktop always has. The page multiplies
+  the spatial constants by `min(width/1920, height/1080)`, clamped to
+  0.15..1.6, so the row fits a narrow browser window instead of running off the
+  edge. At 1920x1080 that factor is 1 and the picture is the desktop picture.
+- **The no audio state is a black page.** `MIN_BALL_SIZE` is 0, so with no audio
+  every ball has a radius of 0. The hint line is the only thing on screen until
+  something plays.
+
+### Tests
+
+```bash
+cd web
+node tests/analyser_test.mjs    # FFT, band map, gate, pan, frame scaling, physics
+node tests/parity_check.mjs     # this port against the Python, frame by frame
+```
+
+`tests/parity_reference.py` is the analysis half of `fizzualizer.py` with the
+capture removed, kept as the reference the port is measured against. The parity
+check runs it in the project venv and compares 80 frames of band, pan, gate and
+reference values. Bands whose true content is zero are excluded and counted
+separately: two FFTs sum in different orders, so a band sitting on the
+cancellation noise floor agrees in character rather than in digits.
+
 ## Files
 
 | File | What |
@@ -315,6 +384,8 @@ stays hand-editable. Defaults below are the shipped values.
 | `install-desktop.sh` | Installs the desktop entry and icon for the current user |
 | `icons/fizzualizer.svg` | App icon source (no background plate) |
 | `icons/fizzualizer.png` | Generated from the SVG; used as the window icon |
+| `web/` | The browser build: `index.html`, `main.js`, `dsp.js`, `physics.js`, `renderer.js`, `audio.js`, `config.js` |
+| `web/tests/` | Node tests, and the Python reference they measure parity against |
 | `@Resources/` + `Visualizer.ini` | Original Rainmeter source files (kept for reference) |
 
 ## Original
