@@ -11,7 +11,7 @@ on ngrok's warning page, then Load audio, or drop an audio file onto the window.
 The desktop application is the full version; the page differs in how it captures
 audio, and the Web build section says exactly how.
 
-This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://github.com/undefinist/Fizzualizer)
+This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://www.deviantart.com/undefinist/art/The-Fizzualizer-690602015)
 (an audio visualizer for the Windows desktop widget engine Rainmeter), rebuilt
 from scratch as a standalone Linux application. The original Lua physics,
 Rainmeter INI layout, and HSV colouring logic were translated to Python and
@@ -398,6 +398,10 @@ cancellation noise floor agrees in character rather than in digits.
 
 ## Original
 
-- **Author:** undefinist (Malody Hoe)
-- **Original skin:** [Fizzualizer on DeviantArt](https://www.deviantart.com/undefinist/art/The-Fizzualizer-762959030)
+- **Author:** [undefinist](https://github.com/undefinist) (Malody Hoe)
+- **Original skin:** [The Fizzualizer on DeviantArt](https://www.deviantart.com/undefinist/art/The-Fizzualizer-690602015), published 2017, last updated 2018
 - **Rainmeter:** [rainmeter.net](https://www.rainmeter.net/)
+
+There is no GitHub repository for the original skin; the DeviantArt deviation is
+where it was published, and it is the only canonical source. The Rainmeter
+project is not connected to this port.
