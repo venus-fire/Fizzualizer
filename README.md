@@ -1,29 +1,27 @@
 # Fizzualizer
 
-A real-time audio visualizer for Linux (PipeWire): 45 frequency-analyzed
-circles with collision physics and an HSV color gradient.
+A real-time audio visualizer for Linux on PipeWire. 45 frequency-analyzed
+circles with collision physics and an HSV colour gradient.
 
 **Try it in a browser:** <https://plausibly-exceeding-murkiness.ngrok-free.dev/fizzualizer/>
 
 That page is the [web build](#web-build), served from the machine this app was
 developed on, so it is up while that machine and its tunnel are. Press Visit Site
 on ngrok's warning page, then Load audio, or drop an audio file onto the window.
-The desktop application is the full version; the page differs in how it captures
-audio, and the Web build section says exactly how.
+The desktop application is the full version. The page captures audio differently,
+and the web build section says how.
 
-This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://www.deviantart.com/undefinist/art/The-Fizzualizer-690602015)
-(an audio visualizer for the Windows desktop widget engine Rainmeter), rebuilt
-from scratch as a standalone Linux application. The original Lua physics,
-Rainmeter INI layout, and HSV colouring logic were translated to Python and
-OpenGL.
+This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://www.deviantart.com/undefinist/art/The-Fizzualizer-690602015),
+an audio visualizer for the Windows desktop widget engine Rainmeter, rebuilt from
+scratch as a standalone Linux application. The original Lua physics, Rainmeter INI
+layout, and HSV colouring logic were translated to Python and OpenGL.
 
-**Built with AI** — this entire project, from translating the Rainmeter Lua
-physics to debugging PipeWire audio capture and optimizing the GPU renderer,
-was developed entirely through conversation with an LLM-based coding agent
-([Hermes Agent](https://hermes-agent.nousresearch.com)). No human wrote a
-single line of the code directly.
+**Built with AI.** The whole project, from translating the Rainmeter Lua physics
+to debugging PipeWire capture and optimizing the GPU renderer, was written through
+conversation with an LLM coding agent, [Hermes Agent](https://hermes-agent.nousresearch.com).
+No human wrote any of the code directly.
 
-## Quick Start
+## Quick start
 
 Requires a Linux system with **PipeWire**.
 
@@ -31,15 +29,15 @@ Requires a Linux system with **PipeWire**.
 ./run.sh
 ```
 
-`run.sh` creates a local `.venv` (numpy, pygame, moderngl) on first run and
-launches from it. On an immutable distro (Bazzite, Silverblue) this is the
+`run.sh` creates a local `.venv` with numpy, pygame and moderngl on first run, and
+launches from it. On an immutable distro such as Bazzite or Silverblue this is the
 path that works, since the Nix route below needs Nix installed. It asks `uv` for a
 3.13 interpreter first, on PATH or at `~/.hermes/bin/uv`, and only falls back to
-plain `python3 -m venv` when neither exists. That order matters: a venv built on
-the distro's `/usr/bin/python3` stops importing its own packages as soon as the
-image moves its python minor, and the failure reads as a broken app rather than a
-broken environment. If `.venv` ever fails that way, delete it and re-run with uv
-present.
+plain `python3 -m venv` when neither exists. That order matters because a venv
+built on the distro's `/usr/bin/python3` stops importing its own packages as soon
+as the image moves its python minor, and the failure reads as a broken app rather
+than a broken environment. If `.venv` ever fails that way, delete it and re-run
+with uv present.
 
 Or with Nix:
 
@@ -47,34 +45,33 @@ Or with Nix:
 nix-shell shell.nix --command "python fizzualizer.py"
 ```
 
-Dependencies are auto-resolved by whichever launcher you use.
+Both launchers resolve the dependencies themselves.
 
 ## How it works
 
-1. **Audio capture** — `parec` reads the default speaker's **monitor**, which is
+1. **Audio capture.** `parec` reads the default speaker's **monitor**, which is
    system audio output rather than the microphone. `pw-cat --record` with the
    `stream.capture.sink=true` property is the fallback for a host without pulse
-   utils; both are the approach [cava](https://github.com/karlstav/cava) uses.
+   utils, and [cava](https://github.com/karlstav/cava) takes the same approach.
    parec comes first because `pw-cat` and `pw-record` both hand back about a
    quarter of a percent of NaN and runaway samples when their stdout is a pipe,
    which is enough to blank every band.
 
-2. **FFT analysis** — 45 logarithmically-spaced frequency bands (10 Hz – 15 kHz)
-   from a 2048-point real FFT, with attack/decay smoothing, a per-band adaptive
-   normalizer so treble bands aren't drowned out by bass, and a common
-   normalizer on top so the picture tracks how loud the music actually is.
+2. **FFT analysis.** 45 logarithmically spaced frequency bands covering 10 Hz to
+   15 kHz, taken from a 2048-point real FFT, with attack and decay smoothing, a
+   per-band adaptive normalizer so treble bands are not drowned out by bass, and a
+   common normalizer on top so the picture tracks how loud the music actually is.
 
-3. **Collision physics** — Two-pass collision detection (centre outward in
-   both directions) ported directly from the Rainmeter Lua. Each ball is
-   pushed away from overlapping neighbours and springs back to its rest
-   position.
+3. **Collision physics.** Two-pass collision detection, from the centre outward in
+   both directions, ported directly from the Rainmeter Lua. Each ball is pushed
+   away from overlapping neighbours and springs back to its rest position.
 
-4. **GPU rendering** — All 45 circles drawn in a single OpenGL draw call
-   via instanced quads (moderngl), reaching 60+ fps on integrated graphics.
+4. **GPU rendering.** All 45 circles drawn in a single OpenGL draw call with
+   instanced quads through moderngl, reaching 60+ fps on integrated graphics.
 
-5. **HSV colouring** — Balls sweep from blue (Hue 240) to purple (Hue 350),
-   with saturation and value varying by band amplitude, matching the original
-   skin's look.
+5. **HSV colouring.** Balls sweep from blue at hue 240 to purple at hue 350, with
+   saturation and value varying by band amplitude, matching the original skin's
+   look.
 
 ## Controls
 
@@ -86,133 +83,132 @@ Dependencies are auto-resolved by whichever launcher you use.
 | **Left** / **Right** | Previous / next track |
 | **Up** / **Down** | System volume up / down by 1% |
 
-Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds
-once it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a
-steady pace instead of one step per tap. Both knobs are in `config.py`.
+Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds once
+it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a steady pace
+instead of one step per tap. Both knobs are in `config.py`.
 
-Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` for a
-window; fullscreen uses the display's own resolution rather than
-`WINDOW_WIDTH`/`WINDOW_HEIGHT`. The window is resizable, and the balls stay
+Starts fullscreen by default. Set `FULLSCREEN = False` in `config.py` to start in
+a window instead. Fullscreen always uses the display's own resolution rather than
+`WINDOW_WIDTH` and `WINDOW_HEIGHT`. The window is resizable, and the balls stay
 centred when it is resized or fullscreen is toggled.
 
-The current track from MPRIS is drawn in the bottom right corner, refreshed
-every 1.5s. It is truncated to fit the window width.
+The current track from MPRIS is drawn in the bottom right corner, refreshed every
+1.5s, and truncated to fit the window width.
 
-`playerctl` is what drives the track keys and the corner line. Without it on
-`PATH` those do nothing and the corner stays empty; everything else works. The
-volume keys use `wpctl` (WirePlumber), falling back to `pactl`; the step size
-is `VOLUME_STEP` in `config.py`.
+`playerctl` drives the track keys and the corner line. Without it on `PATH` those
+do nothing and the corner stays empty; everything else works. The volume keys use
+`wpctl` under WirePlumber, falling back to `pactl`. The step size is
+`VOLUME_STEP` in `config.py`.
 
 ## Config sliders
 
 Move the mouse into the top third of the window and a strip of sliders appears
-along the top, one for every numeric knob in `config.py`, each showing its
-current value. Move it away and they are gone. The panel stays hidden at launch
+along the top, one for every numeric knob in `config.py`, each showing its current
+value. Move the pointer away and they are gone. The panel stays hidden at launch
 until the pointer actually moves, so opening the app with the cursor resting in
-the top of the screen does not put it on the screen.
+the top of the screen does not show it.
 
-Drag a slider and the change is live, and it is written back into `config.py`
-when the drag is released, or after a second without movement if the release
-never arrives. `config.py` therefore stays the single source of truth and stays
-hand-editable, and a kill or a crash cannot lose a session's tuning. Only the
-number changes: comments and the rest of the file are left alone.
+Dragging a slider applies the change live and writes it back into `config.py` when
+the drag ends, or after a second without movement if the release never arrives.
+That keeps `config.py` the single source of truth and hand-editable, and a kill or
+a crash cannot lose a session's tuning. Only the number changes. Comments and the
+rest of the file are left alone.
 
-`UI_HOVER_ZONE` is how much of the window height counts, 0.34 for the top
-third, and 0 keeps the sliders up all the time. It is itself a slider, so it
-can be dialled in from the app. A drag holds the panel open regardless, so
-pulling a slider down the screen does not make it vanish under the cursor.
+`UI_HOVER_ZONE` is how much of the window height counts, 0.34 for the top third,
+and 0 keeps the sliders up permanently. It is itself a slider, so it can be dialled
+in from the app. A drag holds the panel open regardless, so pulling a slider down
+the screen does not make it vanish under the cursor.
 
-The panel is drawn at `UI_ALPHA` opacity, 0.8 by default, so it is 20%
-transparent, and `UI_ALPHA` is one of the sliders too. The labels carry a one
-pixel drop shadow: the panel is translucent, and a bright ball behind it would
-otherwise wash the text out.
+The panel is drawn at `UI_ALPHA` opacity, 0.8 by default, so it is 20% transparent,
+and `UI_ALPHA` is one of the sliders too. The labels carry a one pixel drop shadow
+because the panel is translucent and a bright ball behind it would wash the text
+out.
 
-Three of the sliders need the app to rebuild something rather than just read
-the value again, and it does: `SPACING_X`, `SPACING_Y` and `MIN_BALL_SIZE`
-recreate the balls, and `HUE_START` / `HUE_END` recompute the colour ramp.
-Everything else is read fresh each frame.
+Some sliders need the app to rebuild something rather than read the value again,
+and the app does it. `SPACING_X`, `SPACING_Y` and `MIN_BALL_SIZE` recreate the
+balls, and `HUE_START` and `HUE_END` recompute the colour ramp. Everything else is
+read fresh each frame.
 
 ## Motion
 
 The skin's collision code sets a colliding ball's position to the contact point
 outright. That pins the ball to whatever it touched, so a big ball sits frozen
-while everything around it moves, and a band change of any size teleports it.
-This pushes by a fraction of the overlap instead, so a ball slides out of the
-way and keeps moving. `COLLIDE_PUSH` is that fraction and `SPRING_BACK` is how
-fast it returns to its rest position.
+while everything around it moves, and a band change of any size teleports it. This
+pushes by a fraction of the overlap instead, so a ball slides out of the way and
+keeps moving. `COLLIDE_PUSH` is that fraction and `SPRING_BACK` is how fast the
+ball returns to its rest position.
 
-`MAX_COLLIDER_SIZE` is what the balls push each other with, and it is much
-smaller than `MAX_BALL_SIZE` on purpose: it is the knob for how far apart a
-loud passage spreads the row. Raise it and the row fans out until it leaves the
-window; lower it and the balls pile into a tight row.
+`MAX_COLLIDER_SIZE` is what the balls push each other with, and it is much smaller
+than `MAX_BALL_SIZE` on purpose, because it is the knob for how far apart a loud
+passage spreads the row. Raise it and the row fans out until it leaves the window;
+lower it and the balls pile into a tight row.
 
 ## Stereo
 
-Capture is stereo, and each band's left/right balance moves its ball: a band
+Capture is stereo, and each band's left and right balance moves its ball: a band
 louder in the left ear pulls its ball up, one louder in the right ear pushes it
-down. The travel scales with how loud the band is, so a quiet band barely
-moves, and it is applied to the ball's rest height so the existing spring
-carries it there rather than teleporting it. `STEREO_SHIFT` in `config.py` is
-the maximum travel in pixels at full pan and full volume.
+down. The travel scales with how loud the band is, so a quiet band barely moves,
+and it is applied to the ball's rest height so the existing spring carries it there
+rather than teleporting it. `STEREO_SHIFT` in `config.py` is the maximum travel in
+pixels at full pan and full volume.
 
 ## Loudness
 
-Each band divides by its own recent peak. That keeps bass from drowning out
-treble, but on its own it makes the picture loudness-invariant: the peak decays
-to meet a quiet passage within seconds, so a hushed stretch reads as fully as a
-chorus. A common normalizer runs after the per-band divide and scales all 45
-bands by how loud the moment is against a falling reference measured in dB,
-leaving the balance between the bands untouched.
+Each band divides by its own recent peak. That keeps bass from drowning out treble,
+but on its own it makes the picture loudness-invariant: the peak decays to meet a
+quiet passage within seconds, so a hushed stretch reads as fully as a chorus. A
+common normalizer runs after the per-band divide and scales all 45 bands by how
+loud the moment is against a falling reference measured in dB, leaving the balance
+between the bands untouched.
 
-On a piano track whose quiet passages sit about 30 dB down, comparing the
-quietest and loudest three second stretches, the mean band value went from 0.37
-against 0.41 to 0.20 against 0.37. `GLOBAL_FLOOR` is how much of a band value
-survives a fully shut gate and is the one to tune by ear, `GLOBAL_RANGE_DB` is
-how far the music has to drop to shut it, and `GLOBAL_REF_FALL` is how fast the
-reference forgets, in dB per second.
+On a piano track whose quiet passages sit about 30 dB down, the mean band value
+went from 0.37 against 0.41 to 0.20 against 0.37, comparing the quietest and
+loudest three second stretches. `GLOBAL_FLOOR` is how much of a band value survives
+a fully shut gate and is the one to tune by ear, `GLOBAL_RANGE_DB` is how far the
+music has to drop to shut it, and `GLOBAL_REF_FALL` is how fast the reference
+forgets, in dB per second.
 
-Loudness comes from the window's own RMS rather than from the band magnitudes:
-an unweighted average over 45 log-spaced bands reads a thin bass note as quiet
-and a wash of broadband hiss as loud, which inverts the gate on sparse
-material. Sparse ambient music with almost no sustained dynamic range therefore
-barely moves the gate, which is the limit of the approach rather than a bug.
+Loudness comes from the window's own RMS rather than from the band magnitudes. An
+unweighted average over 45 log-spaced bands reads a thin bass note as quiet and a
+wash of broadband hiss as loud, which inverts the gate on sparse material. Sparse
+ambient music with almost no sustained dynamic range therefore barely moves the
+gate, which is the limit of the approach rather than a bug.
 
 ## Analysis rate and pacing
 
-A reader thread keeps the newest 2048 sample window in a ring, advancing it
-every 1024 samples, about 43 times a second at 44.1kHz. The render loop takes
-whatever window is current and presents at the display's refresh rate, so the
-app runs at the panel rate instead of the audio hop rate. Reading the audio
-inline is what pinned the whole app to 43fps in bursts.
+A reader thread keeps the newest 2048 sample window in a ring, advancing it every
+1024 samples, about 43 times a second at 44.1kHz. The render loop takes whatever
+window is current and presents at the display's refresh rate, so the app runs at
+the panel rate instead of the audio hop rate. Reading the audio inline is what
+pinned the whole app to 43fps in bursts.
 
-`FPS = 0` means "use the refresh rate of the output the window is on", read
-from `xrandr` at startup and again when the window is resized. SDL exposes no
-refresh rate under XWayland and pygame 2.6 has no API for one, so `xrandr` is
-the only source: each connected output's first starred mode is the one it is
-running, and the window is matched to an output by size. Set `FPS` to a number
-to override it.
+`FPS = 0` means "use the refresh rate of the output the window is on", read from
+`xrandr` at startup and again when the window is resized. SDL exposes no refresh
+rate under XWayland and pygame 2.6 has no API for one, so `xrandr` is the only
+source. Each connected output's first starred mode is the one it is running, and
+the window is matched to an output by size. Set `FPS` to a number to override it.
 
 `ATTACK`, `DECAY`, `PEAK_DECAY`, `PAN_SMOOTH`, `COLLIDE_PUSH`, `SPRING_BACK`,
 `GLOBAL_ATTACK` and `GLOBAL_RELEASE` are per-frame factors written for
 `REFERENCE_FPS`. The app scales them by the real frame time, so raising `FPS`
 smooths the motion without speeding it up. `PEAK_DECAY` is how fast each band
-forgets its loudest recent moment: at 0.993 that is about a three second
-half-life, so a band recovers from a preceding loud passage in a couple of
-seconds instead of staying squashed for ten.
+forgets its loudest recent moment. At 0.993 that is about a three second half-life,
+so a band recovers from a preceding loud passage in a couple of seconds instead of
+staying squashed for ten.
 
 There is no working vsync on this stack. SDL's `vsync=1` does not throttle
 presentation under KWin, moderngl 5.13 has no swap interval, and no GLX
-swap-control entry point is reachable from Python; a tight render loop measures
-over a million presents a second either way. The compositor owns presentation,
-so there is no tearing to fix. What matters is that frames arrive evenly, and
-that is the pacer.
+swap-control entry point is reachable from Python. A tight render loop measures
+over a million presents a second either way. The compositor owns presentation, so
+there is no tearing to fix. What matters is that frames arrive evenly, and that is
+the pacer.
 
-pygame's `Clock.tick` is not that pacer: it waits with `SDL_Delay`, which
-rounds down and undershoots by most of a millisecond a frame. At 60Hz that
-reads as 62fps and nobody notices, but on a 144Hz panel it reads as 165fps, a
-frame every 6.08ms against a 6.94ms period, and every frame lands somewhere
-different in the scan. `Pacer` sleeps to an absolute deadline instead and
-measures 6.96ms mean with 90% of frames inside 1ms of the period.
+pygame's `Clock.tick` is not that pacer. It waits with `SDL_Delay`, which rounds
+down and undershoots by most of a millisecond a frame. At 60Hz that reads as 62fps
+and nobody notices, but on a 144Hz panel it reads as 165fps, a frame every 6.08ms
+against a 6.94ms period, and every frame lands somewhere different in the scan.
+`Pacer` sleeps to an absolute deadline instead and measures 6.96ms mean with 90% of
+frames inside 1ms of the period.
 
 ## Desktop launcher
 
@@ -220,24 +216,22 @@ measures 6.96ms mean with 90% of frames inside 1ms of the period.
 ./install-desktop.sh
 ```
 
-Installs `fizzualizer.desktop` into `~/.local/share/applications` and the icon
-into the user icon theme, filling in this checkout's path. It then shows up in
-the application menu and the taskbar. Re-run it after moving the repo.
+Installs `fizzualizer.desktop` into `~/.local/share/applications` and the icon into
+the user icon theme, filling in this checkout's path. It then shows up in the
+application menu and the taskbar. Re-run it after moving the repo. The installed
+entry is generated from the repo copy, so edit `fizzualizer.desktop` and re-run the
+script rather than editing the file in `~/.local/share/applications`.
 
-The installed entry is generated from the repo copy, so edit
-`fizzualizer.desktop` and re-run the script rather than editing the file in
-`~/.local/share/applications`.
-
-`icons/fizzualizer.png` is generated from the SVG and is what the window
-itself uses as its icon:
+`icons/fizzualizer.png` is generated from the SVG and is what the window itself
+uses as its icon:
 
 ```bash
 magick -background none -density 384 icons/fizzualizer.svg -resize 256x256 \
   -depth 8 PNG32:icons/fizzualizer.png
 ```
 
-Keep the SVG background-free. A black plate on a dark panel or in a dark
-launcher reads as an empty icon.
+Keep the SVG background-free. A black plate on a dark panel or in a dark launcher
+reads as an empty icon.
 
 ## Configuration
 
@@ -318,8 +312,8 @@ stays hand-editable. Defaults below are the shipped values.
 
 ## Web build
 
-`web/` is the same visualizer as a web page: no build step, no dependencies, no
-install. Three ways in, and they are not equivalent:
+`web/` is the same visualizer as a web page: no build step, no dependencies,
+nothing to install. Three ways in, and they are not equivalent:
 
 | Source | What it captures | Works in |
 |---|---|---|
@@ -327,40 +321,40 @@ install. Three ways in, and they are not equivalent:
 | **Share audio** | tab or system audio through `getDisplayMedia` | Chrome and Edge. Firefox and Safari hand back a video-only stream |
 | **Microphone** | the microphone, which on PipeWire often includes a monitor source of the output | any browser, with permission |
 
-The browser cannot read system audio on its own, which is the one thing the
-desktop build does that this one cannot. Sharing a tab's audio is the closest
-equivalent; a device with a PipeWire monitor in its input list makes the
-microphone route a real system-audio path.
+The browser cannot read system audio on its own, which is the one thing the desktop
+build does that this one cannot. Sharing a tab's audio is the closest equivalent,
+and a device with a PipeWire monitor in its input list makes the microphone route a
+real system-audio path.
 
 Run it with any static file server, or use the copy served at
-`https://plausibly-exceeding-murkiness.ngrok-free.dev/fizzualizer/` (see
-`~/.config/home-gateway/AGENTS.md` for that route):
+`https://plausibly-exceeding-murkiness.ngrok-free.dev/fizzualizer/`. That route is
+documented in `~/.config/home-gateway/AGENTS.md`:
 
 ```bash
 cd web && python3 -m http.server 8199 --bind 127.0.0.1
 # http://127.0.0.1:8199/
 ```
 
-It has to be served over HTTP, not opened as a `file://` path, because ES
-modules and the audio APIs are blocked on `file://`.
+It has to be served over HTTP, not opened as a `file://` path, because ES modules
+and the audio APIs are blocked on `file://`.
 
 Keys: **F** toggles fullscreen, **H** toggles the settings panel. Everything the
-desktop build binds to MPRIS (space, left, right, and the volume keys) has no
-browser equivalent and is not bound.
+desktop app binds to MPRIS has no browser equivalent and is not bound here: space,
+left, right and the volume keys.
 
 Differences from the desktop build, all deliberate:
 
 - **No PipeWire.** See the table above.
-- **Settings live in `web/config.js` and in localStorage.** The panel writes
-  each change into this browser's storage rather than into a file, since a page
-  cannot write its own source. `config.js` holds the defaults; a slider that has
-  been moved stores only its difference from them.
+- **Settings live in `web/config.js` and in localStorage.** The panel writes each
+  change into this browser's storage rather than into a file, since a page cannot
+  write its own source. `config.js` holds the defaults, and a slider that has been
+  moved stores only its difference from them.
 - **The layout scales to the window.** Every spatial setting is in pixels for a
-  1920x1080 window, which is what the desktop always has. The page multiplies
-  the spatial constants by `min(width/1920, height/1080)`, clamped to
-  0.15..1.6, so the row fits a narrow browser window instead of running off the
-  edge. At 1920x1080 that factor is 1 and the picture is the desktop picture.
-- **The no audio state is a black page.** `MIN_BALL_SIZE` is 0, so with no audio
+  1920x1080 window, which is what the desktop always has. The page multiplies the
+  spatial constants by `min(width/1920, height/1080)`, clamped to 0.15..1.6, so
+  the row fits a narrow browser window instead of running off the edge. At
+  1920x1080 that factor is 1 and the picture is the desktop picture.
+- **The silent state is a black page.** `MIN_BALL_SIZE` is 0, so with no audio
   every ball has a radius of 0. The hint line is the only thing on screen until
   something plays.
 
@@ -376,7 +370,7 @@ node tests/parity_check.mjs     # this port against the Python, frame by frame
 capture removed, kept as the reference the port is measured against. The parity
 check runs it in the project venv and compares 80 frames of band, pan, gate and
 reference values. Bands whose true content is zero are excluded and counted
-separately: two FFTs sum in different orders, so a band sitting on the
+separately. Two FFTs sum in different orders, so a band sitting on the
 cancellation noise floor agrees in character rather than in digits.
 
 ## Files
@@ -398,10 +392,10 @@ cancellation noise floor agrees in character rather than in digits.
 
 ## Original
 
-- **Author:** [undefinist](https://github.com/undefinist) (Malody Hoe)
+- **Author:** [undefinist](https://github.com/undefinist), Malody Hoe
 - **Original skin:** [The Fizzualizer on DeviantArt](https://www.deviantart.com/undefinist/art/The-Fizzualizer-690602015), published 2017, last updated 2018
 - **Rainmeter:** [rainmeter.net](https://www.rainmeter.net/)
 
-There is no GitHub repository for the original skin; the DeviantArt deviation is
-where it was published, and it is the only canonical source. The Rainmeter
-project is not connected to this port.
+There is no GitHub repository for the original skin. DeviantArt is where it was
+published, and that page is the only canonical source. The Rainmeter project is not
+connected to this port.
