@@ -3,6 +3,14 @@
 A real-time audio visualizer for Linux (PipeWire): 45 frequency-analyzed
 circles with collision physics and an HSV color gradient.
 
+**Try it in a browser:** <https://plausibly-exceeding-murkiness.ngrok-free.dev/fizzualizer/>
+
+That page is the [web build](#web-build), served from the machine this app was
+developed on, so it is up while that machine and its tunnel are. Press Visit Site
+on ngrok's warning page, then Load audio, or drop an audio file onto the window.
+The desktop application is the full version; the page differs in how it captures
+audio, and the Web build section says exactly how.
+
 This is a **complete port** of [undefinist's Rainmeter Fizzualizer](https://github.com/undefinist/Fizzualizer)
 (an audio visualizer for the Windows desktop widget engine Rainmeter), rebuilt
 from scratch as a standalone Linux application. The original Lua physics,
