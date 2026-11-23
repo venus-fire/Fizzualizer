@@ -78,6 +78,33 @@ draws actual pixels, the same way the desktop claim comes from the real window.
 cd web && node tests/analyser_test.mjs && node tests/parity_check.mjs
 ```
 
+## The Sonos delay path
+
+`StreamCapture` holds the analysis back by `cfg.SONOS_DELAY` seconds when the
+output is a speaker, so the picture lands with the sound instead of ahead of it.
+The pieces, because they are easy to break apart:
+
+- `_default_sink_via_pactl()` is the sink chooser. It has to be `pactl
+  get-default-sink` first, because a sonos-linux sink is a null sink with no
+  `priority.session` and the old `pw-dump` priority scan could never select one.
+  The scan stays as the fallback for a host without pulse utils.
+- `_apply_delay()` is the delay line: chunks are appended on arrival and
+  released while the queue is longer than the target. `delay_seconds()` decides
+  the target from `SONOS_DELAY`, `SONOS_DELAY_ON` and `sonos_output`.
+- `_watch_output()` polls the default sink every 2 s. On a change it calls
+  `_restart_capture()`, which terminates the old `parec` and starts another on
+  the new sink, because the speaker plays audio the previous sink's monitor does
+  not carry.
+- The delay and `_sink_lock` must be created in `__init__` before
+  `_start_pwcat()`. Starting the capture reads both, and building them after the
+  start is an `AttributeError` at launch.
+
+Tested without a window: build the object with `_start_capture_process` stubbed
+to a no-op, feed a wav through `_apply_delay` and `get_bands`, and compare when
+the burst first shows against the undelayed run. A 2.0 s setting measured 2.00 s
+of added lag. `overlay.save()` gained boolean support so `SONOS_DELAY_ON`
+round-trips as `True`/`False`; it used to write numbers only.
+
 ## Traps that have cost time already
 
 Capture must not be piped. Output written to a pipe rather than a terminal produced a

@@ -17,6 +17,7 @@ import signal
 import threading
 import time
 import atexit
+from collections import deque
 
 import numpy as np
 
@@ -28,8 +29,28 @@ from overlay import Overlay, GEOMETRY_ATTRS, HUE_ATTRS
 # Audio capture — pw-cat --record piped through subprocess
 # =========================================================================
 
+def _default_sink_via_pactl():
+    """The sink audio is actually going to, or None if pactl is missing."""
+    try:
+        out = subprocess.check_output(['pactl', 'get-default-sink'],
+                                      text=True, timeout=3).strip()
+        return out or None
+    except Exception:
+        return None
+
+
 def _find_default_sink():
-    """Return the node.name of the default audio sink."""
+    """Return the node.name of the sink audio is actually going to.
+
+    pactl knows the real default, and it is the only one of the two routes that
+    can see a Sonos sink. Those are null sinks with no priority.session at all,
+    so the scan below never picked one even when it was the selected output.
+    The scan stays as the fallback for a host without pulse utils.
+    """
+    name = _default_sink_via_pactl()
+    if name:
+        return name
+
     try:
         raw = subprocess.check_output(['pw-dump'], text=True)
         data = json.loads(raw)
@@ -68,6 +89,19 @@ class StreamCapture:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._reader_thread = None
+
+        # Delay compensation. A Sonos speaker plays seconds after the audio
+        # reaches it, so the analysis is held back by the same amount and the
+        # picture lands with the sound. Chunks are queued on arrival and
+        # released once the queue is older than the target, which is a delay
+        # line rather than a smoothing of the bands. These have to exist before
+        # the capture starts, because the capture reports the sink and reads
+        # the delay.
+        self._delay = deque()
+        self._delay_frames = 0
+        self.sonos_output = False
+        self._sink_lock = threading.Lock()
+
         self._start_pwcat()
 
         # Pre-compute band binning indices
@@ -95,19 +129,38 @@ class StreamCapture:
         self._reader_thread = threading.Thread(target=self._reader, daemon=True)
         self._reader_thread.start()
 
+        # Follow the default output on a timer. Two jobs: note when it is a
+        # sonos_<zone> sink, and re-point the capture when the default changes,
+        # because the speaker plays audio the previous sink's monitor does not
+        # carry.
+        self._watch_thread = threading.Thread(target=self._watch_output, daemon=True)
+        self._watch_thread.start()
+
     def _start_pwcat(self):
         sink_name = _find_default_sink()
         if sink_name is None:
             print("ERROR: no audio sink found. Is PipeWire running?", file=sys.stderr)
             sys.exit(1)
         self._sink_name = sink_name
+        self.sonos_output = sink_name.startswith('sonos')
         print(f"Audio: {sink_name} (sink monitor, {self._channels}ch)")
-        # parec first. pw-cat and pw-record both hand back individual NaN and
-        # huge-sample floats when stdout is a pipe (measured 0.25% of samples
-        # on PipeWire 1.6.10), which makes every FFT band read zero and the
-        # visualizer draw nothing. The same tools writing to a file are clean,
-        # so it is their stdout path, and parec's pipe is clean at the same
-        # rate. Keep pw-cat as the fallback for a host without pulse utils.
+        if self.sonos_output:
+            print(f"Output is a Sonos sink, delay {self.delay_seconds():.1f}s"
+                  f" ({'auto' if cfg.SONOS_AUTO else 'manual'})", flush=True)
+        self._start_capture_process()
+        time.sleep(0.5)
+
+    def _start_capture_process(self):
+        """Start a capture process on self._sink_name.
+
+        parec first. pw-cat and pw-record both hand back individual NaN and
+        huge-sample floats when stdout is a pipe (measured 0.25% of samples
+        on PipeWire 1.6.10), which makes every FFT band read zero and the
+        visualizer draw nothing. The same tools writing to a file are clean,
+        so it is their stdout path, and parec's pipe is clean at the same
+        rate. Keep pw-cat as the fallback for a host without pulse utils.
+        """
+        sink_name = self._sink_name
         cmds = [
             ['parec', '--device', f'{sink_name}.monitor',
              '--format=float32le', '--rate', str(cfg.SAMPLE_RATE),
@@ -123,9 +176,10 @@ class StreamCapture:
              '-'],
         ]
         last_err = None
+        proc = None
         for cmd in cmds:
             try:
-                self._proc = subprocess.Popen(
+                proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
@@ -136,13 +190,86 @@ class StreamCapture:
                 continue
             print(f"Capture: {cmd[0]}")
             break
-        if self._proc is None:
+        if proc is None:
             print(f"ERROR: no audio capture tool worked: {last_err}",
                   file=sys.stderr)
             raise last_err if last_err else RuntimeError("no audio capture tool")
-        StreamCapture._processes.append(self._proc)
+        with self._sink_lock:
+            self._proc = proc
+        StreamCapture._processes.append(proc)
         self._register_atexit()
-        time.sleep(0.5)
+
+    def _restart_capture(self, sink_name):
+        """Re-point the capture at a new default sink."""
+        with self._sink_lock:
+            old, self._proc = self._proc, None
+        if old is not None:
+            try:
+                StreamCapture._processes.remove(old)
+            except ValueError:
+                pass
+            try:
+                old.terminate()
+                old.wait(timeout=2)
+            except Exception:
+                try:
+                    old.kill()
+                except Exception:
+                    pass
+        print(f"Output changed: {self._sink_name} -> {sink_name}", flush=True)
+        self._sink_name = sink_name
+        self._delay.clear()
+        self._delay_frames = 0
+        try:
+            self._start_capture_process()
+        except Exception as exc:
+            print(f"Could not move capture to {sink_name}: {exc}",
+                  file=sys.stderr, flush=True)
+
+    def delay_seconds(self):
+        """How far the analysis is held back right now, in seconds."""
+        if cfg.SONOS_DELAY <= 0:
+            return 0.0
+        if cfg.SONOS_DELAY_ON or (cfg.SONOS_AUTO and self.sonos_output):
+            return float(cfg.SONOS_DELAY)
+        return 0.0
+
+    def toggle_delay(self):
+        """Flip the manual toggle. Returns the new state."""
+        cfg.SONOS_DELAY_ON = not cfg.SONOS_DELAY_ON
+        return cfg.SONOS_DELAY_ON
+
+    def _apply_delay(self, chunk):
+        """Queue a chunk and return the chunks that are due now."""
+        target = int(self.delay_seconds() * cfg.SAMPLE_RATE)
+        if target <= 0:
+            if self._delay:
+                self._delay.clear()
+                self._delay_frames = 0
+            return (chunk,)
+        self._delay.append(chunk)
+        self._delay_frames += chunk.shape[0]
+        due = []
+        while self._delay_frames > target and self._delay:
+            head = self._delay.popleft()
+            self._delay_frames -= head.shape[0]
+            due.append(head)
+        return due
+
+    def _watch_output(self):
+        """Follow the default sink, and notice when it is a Sonos one."""
+        while not self._stop.wait(2.0):
+            current = _find_default_sink()
+            if not current:
+                continue
+            is_sonos = current.startswith('sonos')
+            if is_sonos != self.sonos_output:
+                self.sonos_output = is_sonos
+                state = (f'delay {self.delay_seconds():.1f}s'
+                         if self.delay_seconds() else 'no delay')
+                print(f"Output: {current} ({state})", flush=True)
+            if current != self._sink_name:
+                self._restart_capture(current)
 
     def _register_atexit(self):
         if not hasattr(StreamCapture, '_atexit_done'):
@@ -160,7 +287,12 @@ class StreamCapture:
                             pass
 
     def close(self):
-        self._stop.set()
+        # __del__ can run on a half-built object if __init__ raised, and the
+        # delay/watch additions mean there is more to build before _stop.
+        stop = getattr(self, '_stop', None)
+        if stop is None:
+            return
+        stop.set()
         if self._proc:
             try:
                 StreamCapture._processes.remove(self._proc)
@@ -175,16 +307,22 @@ class StreamCapture:
         if self._reader_thread is not None:
             self._reader_thread.join(timeout=2)
             self._reader_thread = None
+        watcher = getattr(self, '_watch_thread', None)
+        if watcher is not None:
+            watcher.join(timeout=3)
+            self._watch_thread = None
 
     def __del__(self):
         self.close()
 
     def _read_hop(self):
         """Read one hop of interleaved stereo, or None on a short read."""
-        if self._proc is None or self._proc.stdout is None:
+        with self._sink_lock:
+            proc = self._proc
+        if proc is None or proc.stdout is None:
             return None
         try:
-            raw = self._proc.stdout.read(self._hop_bytes)
+            raw = proc.stdout.read(self._hop_bytes)
         except Exception:
             return None
         if len(raw) < self._hop_bytes:
@@ -206,12 +344,13 @@ class StreamCapture:
                     break
                 time.sleep(0.005)
                 continue
-            n = chunk.shape[0]
-            with self._lock:
-                if n >= cfg.FFT_SIZE:
-                    self._ring = chunk[-cfg.FFT_SIZE:].copy()
-                else:
-                    self._ring = np.concatenate((self._ring[n:], chunk), axis=0)
+            for due in self._apply_delay(chunk):
+                n = due.shape[0]
+                with self._lock:
+                    if n >= cfg.FFT_SIZE:
+                        self._ring = due[-cfg.FFT_SIZE:].copy()
+                    else:
+                        self._ring = np.concatenate((self._ring[n:], due), axis=0)
 
     def read_block(self):
         """The newest window. Never blocks: if the reader has not advanced yet
@@ -854,6 +993,12 @@ def run():
                                 window.size = (cfg.WINDOW_WIDTH, cfg.WINDOW_HEIGHT)
                             except Exception:
                                 pass
+                    elif event.key == pygame.K_d:
+                        on = audio.toggle_delay()
+                        print(f"Sonos delay {'on' if on else 'off'}"
+                              f" ({audio.delay_seconds():.1f}s)", flush=True)
+                        overlay.dirty.add('SONOS_DELAY_ON')
+                        overlay.flush()
                     elif event.key == pygame.K_SPACE:
                         _toggle_mpris()
                     elif event.key == pygame.K_RIGHT:
@@ -1005,7 +1150,12 @@ def run():
                 text_vao.render(moderngl.TRIANGLES, vertices=6)
 
             target_fps = cfg.FPS if cfg.FPS > 0 else refresh_hz
-            overlay.info = f'{target_fps:.0f}fps'
+            info = f'{target_fps:.0f}fps'
+            if audio.delay_seconds() > 0:
+                info += f'  sonos +{audio.delay_seconds():.1f}s'
+            elif audio.sonos_output:
+                info += '  sonos nodelay'
+            overlay.info = info
             overlay.draw(w, h)
             pygame.display.flip()
             pacer.tick(target_fps)

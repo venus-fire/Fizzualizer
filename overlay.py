@@ -42,6 +42,7 @@ SLIDERS = [
     ('MOUSE_HIDE_DELAY',  'mouse hide',    0.0,   20.0,    1.0,   True),
     ('UI_HOVER_ZONE',     'hover zone',    0.0,   1.0,     0.01,  False),
     ('UI_ALPHA',          'ui alpha',      0.05,  1.0,     0.05,  False),
+    ('SONOS_DELAY',       'sonos delay',   0.0,   8.0,     0.1,   False),
 ]
 
 # Attributes that need the app to rebuild something when they change
@@ -468,12 +469,21 @@ class Overlay:
             value = getattr(self.cfg, name, None)
             if value is None:
                 continue
-            pattern = re.compile(rf'^(\s*{name}\s*=\s*)(-?[\d.]+)([^\n]*)(\n?)$')
+            # Booleans are written as True/False rather than as numbers, so the
+            # key toggles survive a restart the same way the sliders do.
+            if isinstance(value, bool):
+                pattern = re.compile(
+                    rf'^(\s*{name}\s*=\s*)(True|False)([^\n]*)(\n?)$')
+                text = 'True' if value else 'False'
+            else:
+                pattern = re.compile(
+                    rf'^(\s*{name}\s*=\s*)(-?[\d.]+)([^\n]*)(\n?)$')
+                text = f'{value:g}'
             for i, line in enumerate(lines):
                 m = pattern.match(line)
                 if not m:
                     continue
-                new = f'{m.group(1)}{value:g}{m.group(3)}{m.group(4)}'
+                new = f'{m.group(1)}{text}{m.group(3)}{m.group(4)}'
                 if new != line:
                     lines[i] = new
                     written.append(name)

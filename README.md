@@ -82,6 +82,7 @@ Both launchers resolve the dependencies themselves.
 | **Space** | Play/pause the active MPRIS player (via `playerctl`) |
 | **Left** / **Right** | Previous / next track |
 | **Up** / **Down** | System volume up / down by 1% |
+| **D** | Toggle the Sonos delay compensation |
 
 Holding up or down repeats, one step every `VOLUME_REPEAT_INTERVAL` seconds once
 it has been held for `VOLUME_REPEAT_DELAY`, so the volume moves at a steady pace
@@ -99,6 +100,30 @@ The current track from MPRIS is drawn in the bottom right corner, refreshed ever
 do nothing and the corner stays empty; everything else works. The volume keys use
 `wpctl` under WirePlumber, falling back to `pactl`. The step size is
 `VOLUME_STEP` in `config.py`.
+
+## Sonos output
+
+When the output is a Sonos speaker the sound and the picture drift apart.
+sonos-linux serves the stream, the speaker buffers two to five seconds of it, and
+the visualizer analyses the audio the moment it leaves the application, so the
+balls land before you hear anything.
+
+Press **D** and the analysis is held back by `SONOS_DELAY` seconds, so a drum
+hit draws when it is heard rather than when it was played. The panel header
+shows the state as `sonos +4.0s`, and the `sonos delay` slider sets the number
+between 0 and 8 seconds. Raising it freezes the picture once while the queue
+fills, which is the delay line filling rather than a stall. Lowering it drains
+the queue, which skips the picture forward.
+
+`SONOS_AUTO` does that on its own, and it is on by default. Every two seconds the
+app reads the default sink; when it is one of the `sonos_<zone>` sinks that
+sonos-linux creates, the delay applies itself and the log says so. The capture
+also follows the default sink, because the speaker plays audio the previous
+sink's monitor does not carry: selecting the speaker mid-run re-points the
+capture, and selecting the onboard output again turns the delay back off.
+
+The delay is measured in seconds rather than in frames, so changing
+`SAMPLE_RATE` does not change what the number means.
 
 ## Config sliders
 
@@ -272,6 +297,14 @@ stays hand-editable. Defaults below are the shipped values.
 | `ATTACK` | `0.5` | How fast a band value rises toward a louder reading. Higher lands the hit harder. |
 | `DECAY` | `0.97` | How fast a band value falls back. Higher is slower, so the tail lasts longer. |
 
+### Sonos output
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `SONOS_DELAY` | `4.0` | Seconds the analysis is held back, to match the speaker's own buffer. Tune it by ear between 2 and 5; the slider covers 0 to 8. |
+| `SONOS_DELAY_ON` | `False` | The manual toggle, key **D**. Turning it with the key writes the new value back into this file. |
+| `SONOS_AUTO` | `True` | Apply the delay by itself when the default sink is a `sonos_*` sink, and follow the default sink when it changes. |
+
 ### Normalization
 
 | Setting | Default | What it does |
@@ -379,7 +412,7 @@ cancellation noise floor agrees in character rather than in digits.
 |------|------|
 | `fizzualizer.py` | Main app (~1030 lines) |
 | `overlay.py` | The config sliders: layout, mouse, drawing, and the write-back |
-| `config.py` | All visualizer settings, 42 of them |
+| `config.py` | All visualizer settings, 45 of them |
 | `run.sh` | Launcher (creates and uses `.venv`) |
 | `shell.nix` | Nix environment, alternative to `run.sh` |
 | `fizzualizer.desktop` | Desktop entry template (`@EXEC@` / `@PATH@` filled at install) |

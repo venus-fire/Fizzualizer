@@ -41,6 +41,23 @@ FREQ_MAX = 15000
 # higher = the loud peak keeps squashing everything for longer.
 PEAK_DECAY = 0.993
 
+# Sonos delay compensation. A Sonos speaker buffers two to five seconds of
+# audio before it plays, so with the stream routed there the picture runs ahead
+# of the sound. This holds the analysis back by the same amount, which makes
+# the balls land with what you hear. SONOS_DELAY is that buffer in seconds and
+# the exact figure depends on the speaker model, so set it by ear: start at 4
+# and walk it up or down until a drum hit draws as it is heard. Increasing it
+# while running freezes the picture once for the difference, because the queue
+# has to fill; that is the delay line filling, not a stall.
+SONOS_DELAY = 4.0
+# The manual toggle, key D. Off by default; the panel header shows the state.
+SONOS_DELAY_ON = False
+# Follow the default output and turn the delay on by itself when it is one of
+# the sonos-linux sinks, named sonos_<zone>. The app also re-points its capture
+# at whatever sink becomes the default, because the speaker sees audio the old
+# sink's monitor does not.
+SONOS_AUTO = True
+
 # Common normalization, applied on top of the per-band one. Each band divides
 # by its own recent peak, so once that peak has decayed a hushed band still
 # reads near full and a quiet passage looks as busy as a chorus. This measures
