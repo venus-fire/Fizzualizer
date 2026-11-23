@@ -29,6 +29,28 @@ from overlay import Overlay, GEOMETRY_ATTRS, HUE_ATTRS
 # Audio capture — pw-cat --record piped through subprocess
 # =========================================================================
 
+def _default_sink_via_wpctl():
+    """The sink WirePlumber actually routes new streams to.
+
+    This is the one that matters. `pactl get-default-sink` reports a different,
+    sloppier view: it can say the onboard device while WirePlumber's own
+    configured default is still a sink that is not the active one, and new
+    streams follow WirePlumber. That mismatch is how a session ended up
+    routing audio to the Sonos sink while `pactl get-default-sink` reported the
+    USB device.
+    """
+    try:
+        out = subprocess.check_output(['wpctl', 'inspect', '@DEFAULT_AUDIO_SINK@'],
+                                      text=True, timeout=3)
+    except Exception:
+        return None
+    for line in out.splitlines():
+        if 'node.name' in line and '=' in line:
+            name = line.split('=', 1)[1].strip().strip('"')
+            return name or None
+    return None
+
+
 def _default_sink_via_pactl():
     """The sink audio is actually going to, or None if pactl is missing."""
     try:
@@ -47,7 +69,7 @@ def _find_default_sink():
     so the scan below never picked one even when it was the selected output.
     The scan stays as the fallback for a host without pulse utils.
     """
-    name = _default_sink_via_pactl()
+    name = _default_sink_via_wpctl() or _default_sink_via_pactl()
     if name:
         return name
 

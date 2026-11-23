@@ -84,7 +84,15 @@ cd web && node tests/analyser_test.mjs && node tests/parity_check.mjs
 output is a speaker, so the picture lands with the sound instead of ahead of it.
 The pieces, because they are easy to break apart:
 
-- `_default_sink_via_pactl()` is the sink chooser. It has to be `pactl
+- The sink chooser asks `wpctl inspect @DEFAULT_AUDIO_SINK@` first and only
+  falls back to `pactl get-default-sink`. They are not the same answer:
+  WirePlumber keeps its own configured default in
+  `~/.local/state/wireplumber/default-nodes`, and new streams follow that. During
+  an incident `pactl get-default-sink` reported the USB device while the
+  configured default was still `sonos_den`, so everything new went to the
+  speaker. Revert with `wpctl set-default <id>` and confirm the file, not the
+  pactl answer.
+- `_default_sink_via_pactl()` is the fallback. It has to be `pactl
   get-default-sink` first, because a sonos-linux sink is a null sink with no
   `priority.session` and the old `pw-dump` priority scan could never select one.
   The scan stays as the fallback for a host without pulse utils.

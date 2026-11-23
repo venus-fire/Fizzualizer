@@ -116,7 +116,8 @@ fills, which is the delay line filling rather than a stall. Lowering it drains
 the queue, which skips the picture forward.
 
 `SONOS_AUTO` does that on its own, and it is on by default. Every two seconds the
-app reads the default sink; when it is one of the `sonos_<zone>` sinks that
+app asks WirePlumber which sink it routes new streams to, through `wpctl`, and
+falls back to `pactl` when `wpctl` is missing, because the two can disagree; when it is one of the `sonos_<zone>` sinks that
 sonos-linux creates, the delay applies itself and the log says so. The capture
 also follows the default sink, because the speaker plays audio the previous
 sink's monitor does not carry: selecting the speaker mid-run re-points the
